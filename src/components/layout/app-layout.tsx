@@ -1,9 +1,10 @@
-'use client'; // SidebarProvider and usePathname require client context
+
+'use client'; 
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { BarChartBig, LayoutDashboard, DatabaseZap, Lightbulb, History as HistoryIcon, ShieldCheck, Settings, UserCircle, Menu } from 'lucide-react';
+import { BarChartBig, LayoutDashboard, DatabaseZap, Lightbulb, History as HistoryIcon, ShieldCheck, Settings, UserCircle, Menu, TrendingUp as TrendingUpIcon } from 'lucide-react';
 import {
   SidebarProvider,
   Sidebar,
@@ -26,6 +27,7 @@ const navItems = [
   { href: '/ingestion', label: 'Data Ingestion', icon: DatabaseZap },
   { href: '/suggestions', label: 'Area Suggestions', icon: Lightbulb },
   { href: '/history', label: 'Demand History', icon: HistoryIcon },
+  { href: '/forecasting', label: 'Demand Forecasting', icon: TrendingUpIcon },
   { href: '/admin', label: 'Admin Panel', icon: ShieldCheck },
 ];
 
@@ -149,7 +151,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
         <MainSidebar />
         <div className="flex flex-col flex-1">
            <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background/80 backdrop-blur-sm px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6 py-2 md:py-4">
-            {/* Mobile sidebar trigger can be part of header or SidebarInset */}
             <div className="md:hidden">
               <MobileSidebar/>
             </div>
@@ -165,3 +166,4 @@ export function AppLayout({ children }: { children: ReactNode }) {
     </SidebarProvider>
   );
 }
+

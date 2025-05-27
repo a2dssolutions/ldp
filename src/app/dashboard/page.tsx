@@ -1,19 +1,35 @@
-import { getDemandDataAction, getCityDemandSummaryAction, getClientDemandSummaryAction } from '@/lib/actions';
-import type { DemandData, CityDemand, ClientDemand } from '@/lib/types';
+
+import { getDemandDataAction, getCityDemandSummaryAction, getClientDemandSummaryAction, getAreaDemandSummaryAction, getMultiClientHotspotsAction } from '@/lib/actions';
+import type { DemandData, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity } from '@/lib/types';
 import { DemandDashboardClient } from '@/components/features/demand-dashboard/demand-dashboard-client';
 import { Suspense } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { format } from 'date-fns';
 
 async function DashboardDataWrapper() {
-  const initialDemandData = await getDemandDataAction();
-  const cityDemandSummary = await getCityDemandSummaryAction();
-  const clientDemandSummary = await getClientDemandSummaryAction();
+  // Fetch all initial data concurrently
+  const today = format(new Date(), 'yyyy-MM-dd');
+  const [
+    initialDemandData,
+    cityDemandSummary,
+    clientDemandSummary,
+    areaDemandSummary,
+    multiClientHotspots,
+  ] = await Promise.all([
+    getDemandDataAction({ date: today }), // Default to today for initial load
+    getCityDemandSummaryAction({ date: today }),
+    getClientDemandSummaryAction({ date: today }),
+    getAreaDemandSummaryAction({ date: today }),
+    getMultiClientHotspotsAction({ date: today }),
+  ]);
 
   return (
     <DemandDashboardClient
       initialDemandData={initialDemandData}
       initialCityDemand={cityDemandSummary}
       initialClientDemand={clientDemandSummary}
+      initialAreaDemand={areaDemandSummary}
+      initialMultiClientHotspots={multiClientHotspots}
     />
   );
 }
@@ -37,16 +53,23 @@ export default async function DashboardPage() {
 function DashboardSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+        <Skeleton className="h-10 w-full" />
         <Skeleton className="h-10 w-full" />
         <Skeleton className="h-10 w-full" />
         <Skeleton className="h-10 w-full" />
       </div>
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
         <Skeleton className="h-80 w-full rounded-lg" />
         <Skeleton className="h-80 w-full rounded-lg" />
+        <Skeleton className="h-80 w-full rounded-lg xl:col-span-1" />
+      </div>
+       <div className="grid gap-6 md:grid-cols-2">
+        <Skeleton className="h-60 w-full rounded-lg" />
+        <Skeleton className="h-60 w-full rounded-lg" />
       </div>
       <Skeleton className="h-96 w-full rounded-lg" />
     </div>
   );
 }
+

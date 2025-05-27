@@ -19,7 +19,7 @@ const SuggestAreasForJobPostingInputSchema = z.object({
 export type SuggestAreasForJobPostingInput = z.infer<typeof SuggestAreasForJobPostingInputSchema>;
 
 const SuggestAreasForJobPostingOutputSchema = z.object({
-  areas: z.array(z.string()).describe('The top 5 areas to post jobs in.'),
+  areas: z.array(z.string()).describe('The top 5 areas to post jobs in, ideally with demand scores greater than 10.'),
 });
 export type SuggestAreasForJobPostingOutput = z.infer<typeof SuggestAreasForJobPostingOutputSchema>;
 
@@ -34,12 +34,13 @@ const prompt = ai.definePrompt({
   input: {schema: SuggestAreasForJobPostingInputSchema},
   output: {schema: SuggestAreasForJobPostingOutputSchema},
   prompt: `You are an expert in job market analysis for India. Given the client and city, you will suggest the top 5 areas to post jobs in.
-Consider factors like population density, business activity, and existing demand for the specified client in that city.
+Prioritize areas where current demand is likely high, ideally with a demand score greater than 10 if such data were available to you.
+Consider factors like population density, business activity, local economic indicators, and existing demand patterns for the specified client in that city.
 
 Client: {{{client}}}
 City: {{{city}}}
 
-Suggest the top 5 areas to post jobs in for an Indian context:
+Suggest the top 5 areas to post jobs in for an Indian context, focusing on areas with potentially high demand (e.g., demand score > 10):
 `,
 });
 
@@ -51,12 +52,16 @@ const suggestAreasForJobPostingFlow = ai.defineFlow(
   },
   async (input: SuggestAreasForJobPostingInput): Promise<SuggestAreasForJobPostingOutput> => {
     console.log(`Generating AI suggestions for city: ${input.city}, client: ${input.client}`);
+    // In a future iteration, this flow could use a Genkit Tool to fetch live demand data from Firestore
+    // and pass it to the prompt or use it to filter/rank suggestions.
+    // For now, the prompt guides the LLM to consider high demand conceptually.
     const {output} = await prompt(input);
-    if (!output) {
-        // Handle cases where the prompt might not return an output as expected
-        console.error('AI prompt did not return an output for suggestAreasForJobPostingFlow');
-        return { areas: ['Error: Could not generate suggestions'] };
+    if (!output || !output.areas || output.areas.length === 0) {
+        console.error('AI prompt did not return an output or areas for suggestAreasForJobPostingFlow');
+        // Provide a fallback or more specific error message
+        return { areas: ['AI suggestion generation failed. Please check logs or try different criteria.'] };
     }
     return output;
   }
 );
+

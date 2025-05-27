@@ -11,13 +11,14 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { DatePicker } from '@/components/ui/date-picker';
-import { getDemandDataAction } from '@/lib/actions';
-import type { DemandData, ClientName, CityDemand, ClientDemand } from '@/lib/types';
+import { getDemandDataAction, getAreaDemandSummaryAction, getMultiClientHotspotsAction, getCityDemandSummaryAction, getClientDemandSummaryAction } from '@/lib/actions';
+import type { DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity } from '@/lib/types';
 import { format } from 'date-fns';
 import { AiSuggestionsPlaceholder } from '@/components/features/ai-suggestions-placeholder';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Users, MapPin, TrendingUp, Zap } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
 
 
 const CLIENT_OPTIONS: ClientName[] = ['Zepto', 'Blinkit', 'SwiggyFood', 'SwiggyIM'];
@@ -29,19 +30,27 @@ interface DemandDashboardClientProps {
   initialDemandData: DemandData[];
   initialCityDemand: CityDemand[];
   initialClientDemand: ClientDemand[];
+  // Add initial props for new data, fetched server-side if possible or fetched on client mount
+  initialAreaDemand: AreaDemand[];
+  initialMultiClientHotspots: MultiClientHotspotCity[];
 }
 
 export function DemandDashboardClient({
   initialDemandData,
   initialCityDemand,
   initialClientDemand,
+  initialAreaDemand,
+  initialMultiClientHotspots,
 }: DemandDashboardClientProps) {
   const [demandData, setDemandData] = useState<DemandData[]>(initialDemandData);
   const [cityDemand, setCityDemand] = useState<CityDemand[]>(initialCityDemand);
   const [clientDemand, setClientDemand] = useState<ClientDemand[]>(initialClientDemand);
+  const [areaDemand, setAreaDemand] = useState<AreaDemand[]>(initialAreaDemand);
+  const [multiClientHotspots, setMultiClientHotspots] = useState<MultiClientHotspotCity[]>(initialMultiClientHotspots);
   
   const [filters, setFilters] = useState<{ client?: ClientName; date?: Date; city?: string }>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingExtras, setIsLoadingExtras] = useState(false); // For new cards
   const { toast } = useToast();
 
   const [isClient, setIsClient] = useState(false);
@@ -57,8 +66,32 @@ export function DemandDashboardClient({
     };
     calculateRadius(); 
     window.addEventListener('resize', calculateRadius); 
+    
+    // Fetch initial extra data if not provided or if a refresh is desired on mount
+    const fetchExtraData = async () => {
+      setIsLoadingExtras(true);
+      try {
+        const [areaData, hotspotData] = await Promise.all([
+          getAreaDemandSummaryAction(filters),
+          getMultiClientHotspotsAction({ date: filters.date ? format(filters.date, 'yyyy-MM-dd') : undefined }),
+        ]);
+        setAreaDemand(areaData);
+        setMultiClientHotspots(hotspotData);
+      } catch (error) {
+        console.error("Failed to fetch extra dashboard data:", error);
+        toast({ title: "Error Loading Insights", description: "Could not fetch top areas or hotspots.", variant: "destructive"});
+      } finally {
+        setIsLoadingExtras(false);
+      }
+    };
+
+    if (initialAreaDemand.length === 0 && initialMultiClientHotspots.length === 0) {
+        fetchExtraData();
+    }
+
+
     return () => window.removeEventListener('resize', calculateRadius); 
-  }, []);
+  }, []); // Removed filters from dependency array to only run once on mount for initial load
 
   const handleFilterChange = (name: string, value: string | Date | ClientName | undefined) => {
     setFilters(prev => ({ ...prev, [name]: value }));
@@ -67,31 +100,45 @@ export function DemandDashboardClient({
   const handleSubmitFilters = async (e: FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setIsLoadingExtras(true); // Also indicate loading for extra cards
     try {
       const formattedDate = filters.date ? format(filters.date, 'yyyy-MM-dd') : undefined;
-      const newFilteredData = await getDemandDataAction({ ...filters, date: formattedDate, client: filters.client });
-      setDemandData(newFilteredData);
+      const currentFilters = { ...filters, date: formattedDate };
       
-      // Re-calculate summaries based on the newFilteredData
-      const newCityMap: Record<string, number> = {};
-      newFilteredData.forEach(item => { newCityMap[item.city] = (newCityMap[item.city] || 0) + item.demandScore; });
-      setCityDemand(Object.entries(newCityMap).map(([city, totalDemand]) => ({ city, totalDemand })).sort((a,b) => b.totalDemand - a.totalDemand));
+      const [newFilteredData, newCityData, newClientData, newAreaData, newHotspotData] = await Promise.all([
+        getDemandDataAction(currentFilters),
+        getCityDemandSummaryAction(currentFilters),
+        getClientDemandSummaryAction(currentFilters),
+        getAreaDemandSummaryAction(currentFilters),
+        getMultiClientHotspotsAction({ date: currentFilters.date })
+      ]);
 
-      const newClientMap: Record<string, number> = {};
-      newFilteredData.forEach(item => { newClientMap[item.client] = (newClientMap[item.client] || 0) + item.demandScore; });
-      setClientDemand(Object.entries(newClientMap).map(([client, totalDemand]) => ({ client: client as ClientName, totalDemand })).sort((a,b) => b.totalDemand - a.totalDemand));
+      setDemandData(newFilteredData);
+      setCityDemand(newCityData);
+      setClientDemand(newClientData);
+      setAreaDemand(newAreaData);
+      setMultiClientHotspots(newHotspotData);
 
-      toast({ title: "Filters Applied", description: "Demand data updated."});
+      toast({ title: "Filters Applied", description: "Dashboard data updated."});
     } catch (error) {
       console.error("Failed to fetch demand data:", error);
       toast({ title: "Error", description: "Could not update demand data.", variant: "destructive"});
     } finally {
       setIsLoading(false);
+      setIsLoadingExtras(false);
     }
+  };
+  
+  const getDemandTier = (score: number): { label: string; variant: "default" | "secondary" | "destructive" | "outline" } => {
+    if (score > 20) return { label: 'High', variant: 'default' }; // Primary color for high
+    if (score >= 10) return { label: 'Medium', variant: 'secondary' }; // Secondary for medium
+    return { label: 'Low', variant: 'outline' }; // Outline or muted for low
   };
 
   const cityDemandForChart = useMemo(() => cityDemand.slice(0, 10), [cityDemand]);
   const clientDemandForChart = useMemo(() => clientDemand, [clientDemand]);
+  const topAreaDemandForChart = useMemo(() => areaDemand.slice(0, 5), [areaDemand]);
+
 
   return (
     <div className="space-y-6">
@@ -112,7 +159,7 @@ export function DemandDashboardClient({
                     handleFilterChange('client', selectedValue as ClientName);
                   }
                 }}
-                value={filters.client} // filters.client can be undefined
+                value={filters.client} 
               >
                 <SelectTrigger id="client-filter">
                   <SelectValue placeholder="All Clients" />
@@ -139,21 +186,21 @@ export function DemandDashboardClient({
               />
             </div>
             <Button type="submit" disabled={isLoading} className="w-full lg:w-auto">
-              {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {(isLoading || isLoadingExtras) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Apply Filters
             </Button>
           </form>
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
         <Card>
           <CardHeader>
-            <CardTitle>Demand by City</CardTitle>
-            <CardDescription>Top 10 cities by total demand score.</CardDescription>
+            <CardTitle className="flex items-center gap-2"><MapPin className="text-primary"/> Demand by City</CardTitle>
+            <CardDescription>Top 10 cities by total demand score based on filters.</CardDescription>
           </CardHeader>
           <CardContent className="h-[300px] sm:h-[350px]">
-            {isClient ? (
+            {isClient && !isLoading ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={cityDemandForChart}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -175,11 +222,11 @@ export function DemandDashboardClient({
 
         <Card>
           <CardHeader>
-            <CardTitle>Demand by Client</CardTitle>
-            <CardDescription>Distribution of demand across clients.</CardDescription>
+            <CardTitle  className="flex items-center gap-2"><Users className="text-primary"/> Demand by Client</CardTitle>
+            <CardDescription>Distribution of demand across clients based on filters.</CardDescription>
           </CardHeader>
           <CardContent className="h-[300px] sm:h-[350px]">
-            {isClient ? (
+            {isClient && !isLoading ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
@@ -208,14 +255,65 @@ export function DemandDashboardClient({
             )}
           </CardContent>
         </Card>
+        
+        <Card className="xl:col-span-1"> {/* New card for Top Performing Areas */}
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><TrendingUp className="text-primary"/> Top Performing Areas</CardTitle>
+            <CardDescription>Highest demand areas based on current filters.</CardDescription>
+          </CardHeader>
+          <CardContent className="h-[300px] sm:h-[350px] overflow-y-auto">
+            {isLoadingExtras ? <Skeleton className="w-full h-full"/> : topAreaDemandForChart.length > 0 ? (
+              <ul className="space-y-3">
+                {topAreaDemandForChart.map((item, index) => (
+                  <li key={index} className="flex justify-between items-center p-2 rounded-md bg-card border">
+                    <div>
+                      <p className="font-semibold">{item.area}</p>
+                      <p className="text-xs text-muted-foreground">{item.city} - Clients: {item.clients.join(', ')}</p>
+                    </div>
+                    <Badge variant={getDemandTier(item.totalDemand).variant}>{item.totalDemand}</Badge>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-center text-muted-foreground pt-10">No area data available for current filters.</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <Card> {/* New card for Multi-Client Hotspots */}
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Zap className="text-primary"/> Multi-Client Hotspot Cities</CardTitle>
+                <CardDescription>Cities with significant demand from multiple clients.</CardDescription>
+            </CardHeader>
+            <CardContent className="min-h-[200px] overflow-y-auto">
+                 {isLoadingExtras ? <Skeleton className="w-full h-[180px]"/> : multiClientHotspots.length > 0 ? (
+                <ul className="space-y-3">
+                    {multiClientHotspots.slice(0, 5).map((hotspot) => (
+                    <li key={hotspot.city} className="p-3 rounded-md bg-card border">
+                        <div className="flex justify-between items-center">
+                        <p className="font-semibold text-lg">{hotspot.city}</p>
+                        <Badge variant="default">{hotspot.clientCount} Clients</Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">Active: {hotspot.activeClients.join(', ')}</p>
+                        <p className="text-xs text-muted-foreground">Total Demand Score: {hotspot.totalDemand}</p>
+                    </li>
+                    ))}
+                </ul>
+                ) : (
+                <p className="text-center text-muted-foreground pt-10">No multi-client hotspots found for current filters.</p>
+                )}
+            </CardContent>
+        </Card>
+        <AiSuggestionsPlaceholder />
       </div>
       
-      <AiSuggestionsPlaceholder />
 
       <Card>
         <CardHeader>
           <CardTitle>Detailed Demand Data</CardTitle>
-          <CardDescription>Paginated view of filtered demand records.</CardDescription>
+          <CardDescription>Paginated view of filtered demand records. Demand Tiers: High &gt; 20, Medium 10-20, Low &lt; 10.</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -223,28 +321,35 @@ export function DemandDashboardClient({
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
              </div>
           ) : demandData.length > 0 ? (
+            <div className="max-h-[400px] overflow-auto rounded-md border">
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
                 <TableRow>
                   <TableHead>Client</TableHead>
                   <TableHead>City</TableHead>
                   <TableHead>Area</TableHead>
                   <TableHead>Demand Score</TableHead>
+                  <TableHead>Priority</TableHead>
                   <TableHead>Date</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {demandData.slice(0,10).map(item => ( 
+                {demandData.slice(0,20).map(item => { // Display more items, e.g., 20
+                  const tier = getDemandTier(item.demandScore);
+                  return (
                   <TableRow key={item.id}>
                     <TableCell>{item.client}</TableCell>
                     <TableCell>{item.city}</TableCell>
                     <TableCell>{item.area}</TableCell>
                     <TableCell>{item.demandScore}</TableCell>
+                    <TableCell><Badge variant={tier.variant}>{tier.label}</Badge></TableCell>
                     <TableCell>{item.date}</TableCell>
                   </TableRow>
-                ))}
+                );
+                })}
               </TableBody>
             </Table>
+            </div>
           ) : (
             <p className="text-center text-muted-foreground py-4">No data available for the selected filters.</p>
           )}
@@ -253,3 +358,4 @@ export function DemandDashboardClient({
     </div>
   );
 }
+
