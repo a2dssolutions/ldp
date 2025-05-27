@@ -1,6 +1,12 @@
+
 import { DemandHistoryClient } from '@/components/features/demand-history/demand-history-client';
+import { subDays } from 'date-fns';
 
 export default function DemandHistoryPage() {
+  const today = new Date();
+  const initialFromDate = subDays(today, 7);
+  const initialToDate = today;
+
   return (
     <div className="space-y-6">
       <header>
@@ -9,7 +15,10 @@ export default function DemandHistoryPage() {
           Explore historical demand data, view trends, and analyze past performance.
         </p>
       </header>
-      <DemandHistoryClient />
+      <DemandHistoryClient 
+        initialFromDate={initialFromDate}
+        initialToDate={initialToDate}
+      />
     </div>
   );
 }

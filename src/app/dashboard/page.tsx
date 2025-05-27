@@ -8,7 +8,9 @@ import { format } from 'date-fns';
 
 async function DashboardDataWrapper() {
   // Fetch all initial data concurrently
-  const today = format(new Date(), 'yyyy-MM-dd');
+  const serverRenderDate = new Date(); // Capture a single Date object for consistency
+  const todayString = format(serverRenderDate, 'yyyy-MM-dd'); // Format for API calls
+
   const [
     initialDemandData,
     cityDemandSummary,
@@ -16,11 +18,11 @@ async function DashboardDataWrapper() {
     areaDemandSummary,
     multiClientHotspots,
   ] = await Promise.all([
-    getDemandDataAction({ date: today }), // Default to today for initial load
-    getCityDemandSummaryAction({ date: today }),
-    getClientDemandSummaryAction({ date: today }),
-    getAreaDemandSummaryAction({ date: today }),
-    getMultiClientHotspotsAction({ date: today }),
+    getDemandDataAction({ date: todayString }),
+    getCityDemandSummaryAction({ date: todayString }),
+    getClientDemandSummaryAction({ date: todayString }),
+    getAreaDemandSummaryAction({ date: todayString }),
+    getMultiClientHotspotsAction({ date: todayString }),
   ]);
 
   return (
@@ -30,6 +32,7 @@ async function DashboardDataWrapper() {
       initialClientDemand={clientDemandSummary}
       initialAreaDemand={areaDemandSummary}
       initialMultiClientHotspots={multiClientHotspots}
+      initialSelectedDate={serverRenderDate} // Pass the Date object
     />
   );
 }

@@ -30,9 +30,9 @@ interface DemandDashboardClientProps {
   initialDemandData: DemandData[];
   initialCityDemand: CityDemand[];
   initialClientDemand: ClientDemand[];
-  // Add initial props for new data, fetched server-side if possible or fetched on client mount
   initialAreaDemand: AreaDemand[];
   initialMultiClientHotspots: MultiClientHotspotCity[];
+  initialSelectedDate: Date; // Added prop for consistent initial date
 }
 
 export function DemandDashboardClient({
@@ -41,6 +41,7 @@ export function DemandDashboardClient({
   initialClientDemand,
   initialAreaDemand,
   initialMultiClientHotspots,
+  initialSelectedDate, // Destructure the new prop
 }: DemandDashboardClientProps) {
   const [demandData, setDemandData] = useState<DemandData[]>(initialDemandData);
   const [cityDemand, setCityDemand] = useState<CityDemand[]>(initialCityDemand);
@@ -48,9 +49,11 @@ export function DemandDashboardClient({
   const [areaDemand, setAreaDemand] = useState<AreaDemand[]>(initialAreaDemand);
   const [multiClientHotspots, setMultiClientHotspots] = useState<MultiClientHotspotCity[]>(initialMultiClientHotspots);
   
-  const [filters, setFilters] = useState<{ client?: ClientName; date?: Date; city?: string }>({});
+  const [filters, setFilters] = useState<{ client?: ClientName; date?: Date; city?: string }>({
+    date: initialSelectedDate, // Initialize date filter with the prop
+  });
   const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingExtras, setIsLoadingExtras] = useState(false); // For new cards
+  const [isLoadingExtras, setIsLoadingExtras] = useState(false); 
   const { toast } = useToast();
 
   const [isClient, setIsClient] = useState(false);
@@ -67,32 +70,30 @@ export function DemandDashboardClient({
     calculateRadius(); 
     window.addEventListener('resize', calculateRadius); 
     
-    // Fetch initial extra data if not provided or if a refresh is desired on mount
-    const fetchExtraData = async () => {
-      setIsLoadingExtras(true);
-      try {
-        const currentFormattedDate = filters.date ? format(filters.date, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd');
-        const [areaData, hotspotData] = await Promise.all([
-          getAreaDemandSummaryAction({...filters, date: currentFormattedDate }),
-          getMultiClientHotspotsAction({ date: currentFormattedDate }),
-        ]);
-        setAreaDemand(areaData);
-        setMultiClientHotspots(hotspotData);
-      } catch (error) {
-        console.error("Failed to fetch extra dashboard data:", error);
-        toast({ title: "Error Loading Insights", description: "Could not fetch top areas or hotspots.", variant: "destructive"});
-      } finally {
-        setIsLoadingExtras(false);
+    const fetchExtraDataOnMountIfNeeded = async () => {
+      if (initialAreaDemand.length === 0 && initialMultiClientHotspots.length === 0) {
+        setIsLoadingExtras(true);
+        try {
+          const currentFormattedDate = filters.date ? format(filters.date, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd');
+          const [areaData, hotspotData] = await Promise.all([
+            getAreaDemandSummaryAction({...filters, date: currentFormattedDate }),
+            getMultiClientHotspotsAction({ date: currentFormattedDate }),
+          ]);
+          setAreaDemand(areaData);
+          setMultiClientHotspots(hotspotData);
+        } catch (error) {
+          console.error("Failed to fetch extra dashboard data:", error);
+          toast({ title: "Error Loading Insights", description: "Could not fetch top areas or hotspots.", variant: "destructive"});
+        } finally {
+          setIsLoadingExtras(false);
+        }
       }
     };
 
-    if (initialAreaDemand.length === 0 && initialMultiClientHotspots.length === 0) {
-        fetchExtraData();
-    }
-
+    fetchExtraDataOnMountIfNeeded();
 
     return () => window.removeEventListener('resize', calculateRadius); 
-  }, []); 
+  }, []); // Removed filters from dependency array to avoid re-fetching on filter change here; handleSubmitFilters handles that.
 
   const handleFilterChange = (name: string, value: string | Date | ClientName | undefined) => {
     setFilters(prev => ({ ...prev, [name]: value }));
@@ -103,7 +104,7 @@ export function DemandDashboardClient({
     setIsLoading(true);
     setIsLoadingExtras(true); 
     try {
-      const formattedDate = filters.date ? format(filters.date, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'); // Default to today if no date
+      const formattedDate = filters.date ? format(filters.date, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd');
       const currentFilters = { ...filters, date: formattedDate };
       
       const [newFilteredData, newCityData, newClientData, newAreaData, newHotspotData] = await Promise.all([
@@ -177,7 +178,7 @@ export function DemandDashboardClient({
               <Label htmlFor="date-filter">Date</Label>
               <DatePicker 
                 id="date-filter" 
-                date={filters.date || new Date()} // Default to today in picker
+                date={filters.date} // Use filters.date directly
                 onDateChange={(date) => handleFilterChange('date', date)} 
               />
             </div>
@@ -339,7 +340,7 @@ export function DemandDashboardClient({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {demandData.map(item => { // Removed .slice(0,20) to show all fetched data
+                {demandData.map(item => { 
                   const tier = getDemandTier(item.demandScore);
                   return (
                   <TableRow key={item.id}>
@@ -363,6 +364,3 @@ export function DemandDashboardClient({
     </div>
   );
 }
-
-
-    

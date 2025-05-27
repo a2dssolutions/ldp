@@ -27,9 +27,17 @@ interface DateRange {
   to?: Date;
 }
 
-export function DemandHistoryClient() {
+interface DemandHistoryClientProps {
+  initialFromDate: Date;
+  initialToDate: Date;
+}
+
+export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHistoryClientProps) {
   const [historicalData, setHistoricalData] = useState<DemandData[]>([]);
-  const [dateRange, setDateRange] = useState<DateRange>({ from: subDays(new Date(), 7), to: new Date() });
+  const [dateRange, setDateRange] = useState<DateRange>({ 
+    from: initialFromDate, 
+    to: initialToDate 
+  });
   const [filters, setFilters] = useState<{ client?: ClientName; city?: string }>({});
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
@@ -37,6 +45,8 @@ export function DemandHistoryClient() {
 
   useEffect(() => {
     setIsClient(true);
+    // Optionally, trigger an initial data fetch if desired on component mount
+    // handleSubmit(new Event('submit') as unknown as FormEvent); // Example of initial fetch trigger
   }, []);
 
   const handleDateRangeChange = (field: 'from' | 'to', date: Date | undefined) => {
@@ -61,7 +71,7 @@ export function DemandHistoryClient() {
     try {
       const result = await getHistoricalDemandDataAction(
         { start: format(dateRange.from, 'yyyy-MM-dd'), end: format(dateRange.to, 'yyyy-MM-dd') },
-        filters // filters.client will be ClientName or undefined
+        filters 
       );
       setHistoricalData(result);
       toast({ title: "History Loaded", description: `Found ${result.length} records for the selected period.` });
@@ -114,7 +124,7 @@ export function DemandHistoryClient() {
                     handleFilterChange('client', selectedValue as ClientName);
                   }
                 }}
-                value={filters.client} // filters.client can be undefined
+                value={filters.client || ALL_CLIENTS_SELECT_ITEM_VALUE_HISTORY} 
               >
                 <SelectTrigger id="client-filter-hist">
                   <SelectValue placeholder="All Clients" />
