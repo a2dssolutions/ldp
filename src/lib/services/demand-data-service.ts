@@ -130,7 +130,7 @@ export async function clearAllDemandDataFromStore(): Promise<{ success: boolean;
   }
 }
 
-const MAX_PARENT_DOCS_FOR_BROAD_QUERY = 75; // Increased slightly, monitor performance
+const MAX_PARENT_DOCS_FOR_BROAD_QUERY = 300; // Increased from 75
 const MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY = 250;
 const MAX_RESULTS_TO_CLIENT = 500;      
 
@@ -157,11 +157,11 @@ export async function getDemandData(filters?: {
   }
   
   if (isBroadQuery) {
-    console.warn(`[getDemandData] Broad query. Applying limit of ${MAX_PARENT_DOCS_FOR_BROAD_QUERY} parent documents.`);
+    console.warn(`[getDemandData] Broad query. Applying limit of ${MAX_PARENT_DOCS_FOR_BROAD_QUERY} parent documents to initial Firestore query.`);
     qConstraints.push(limit(MAX_PARENT_DOCS_FOR_BROAD_QUERY));
   }
   
-  const finalParentQuery = qConstraints.length > 0 ? query(parentCollectionRef, ...qConstraints) : query(parentCollectionRef, limit(MAX_PARENT_DOCS_FOR_BROAD_QUERY));
+  const finalParentQuery = query(parentCollectionRef, ...qConstraints);
   const demandEntries: DemandData[] = [];
 
   try {
@@ -173,8 +173,10 @@ export async function getDemandData(filters?: {
 
     let docsToProcess = parentDocsSnapshot.docs;
 
+    // This secondary limit is for how many daily records we try to fetch,
+    // after we've already potentially limited the parentDocsSnapshot by MAX_PARENT_DOCS_FOR_BROAD_QUERY.
     if (!isBroadQuery && docsToProcess.length > MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY) {
-      console.warn(`[getDemandData] Specific query returned ${docsToProcess.length} parent docs. Limiting processing loop to ${MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY}.`);
+      console.warn(`[getDemandData] Specific query matched ${docsToProcess.length} parent docs. Limiting processing loop for daily data to ${MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY}.`);
       docsToProcess = docsToProcess.slice(0, MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY);
     }
 
@@ -239,7 +241,14 @@ export async function getHistoricalDemandData(
      parentQueryConstraints.push(where('city', '==', filters.city.trim()));
   }
 
-  const finalParentQuery = parentQueryConstraints.length > 0 ? query(parentCollectionRef, ...parentQueryConstraints) : parentCollectionRef;
+  // Apply a limit to the parent query if it's broad or too many specific matches
+  if (parentQueryConstraints.length === 0 || parentDocsSnapshot.docs.length > MAX_INDIVIDUAL_HISTORICAL_FETCHES) {
+      parentQueryConstraints.push(limit(MAX_INDIVIDUAL_HISTORICAL_FETCHES));
+      console.warn(`[getHistoricalDemandData] Applied limit of ${MAX_INDIVIDUAL_HISTORICAL_FETCHES} to parent document query.`);
+  }
+
+
+  const finalParentQuery = query(parentCollectionRef, ...parentQueryConstraints);
   const historicalEntries: DemandData[] = [];
   
   try {
@@ -250,10 +259,11 @@ export async function getHistoricalDemandData(
     }
 
     let docsToProcess = parentDocsSnapshot.docs;
-    if (docsToProcess.length > MAX_INDIVIDUAL_HISTORICAL_FETCHES) {
-        console.warn(`[getHistoricalDemandData] Query returned ${docsToProcess.length} parent docs. Limiting processing loop to ${MAX_INDIVIDUAL_HISTORICAL_FETCHES}.`);
-        docsToProcess = docsToProcess.slice(0, MAX_INDIVIDUAL_HISTORICAL_FETCHES);
-    }
+    // This secondary limit is already handled by the limit in the query itself.
+    // if (docsToProcess.length > MAX_INDIVIDUAL_HISTORICAL_FETCHES) {
+    //     console.warn(`[getHistoricalDemandData] Query returned ${docsToProcess.length} parent docs. Limiting processing loop to ${MAX_INDIVIDUAL_HISTORICAL_FETCHES}.`);
+    //     docsToProcess = docsToProcess.slice(0, MAX_INDIVIDUAL_HISTORICAL_FETCHES);
+    // }
 
     for (const parentDoc of docsToProcess) {
       const parentData = parentDoc.data() as { client: ClientName; city: string; area: string };
@@ -264,6 +274,7 @@ export async function getHistoricalDemandData(
         where(documentId(), '>=', dateRange.start), 
         where(documentId(), '<=', dateRange.end),
         orderBy(documentId(), 'asc')
+        // Potentially add limit here if daily subcollections can be huge, e.g., limit(365) for a year
       );
       
       const dailyDocsSnapshot = await getDocs(dailyQuery);
@@ -388,3 +399,6 @@ export async function getMultiClientHotspots(
 
   return hotspots.sort((a, b) => b.clientCount - a.clientCount || b.totalDemand - a.totalDemand);
 }
+
+
+    

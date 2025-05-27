@@ -71,9 +71,10 @@ export function DemandDashboardClient({
     const fetchExtraData = async () => {
       setIsLoadingExtras(true);
       try {
+        const currentFormattedDate = filters.date ? format(filters.date, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd');
         const [areaData, hotspotData] = await Promise.all([
-          getAreaDemandSummaryAction(filters),
-          getMultiClientHotspotsAction({ date: filters.date ? format(filters.date, 'yyyy-MM-dd') : undefined }),
+          getAreaDemandSummaryAction({...filters, date: currentFormattedDate }),
+          getMultiClientHotspotsAction({ date: currentFormattedDate }),
         ]);
         setAreaDemand(areaData);
         setMultiClientHotspots(hotspotData);
@@ -91,7 +92,7 @@ export function DemandDashboardClient({
 
 
     return () => window.removeEventListener('resize', calculateRadius); 
-  }, []); // Removed filters from dependency array to only run once on mount for initial load
+  }, []); 
 
   const handleFilterChange = (name: string, value: string | Date | ClientName | undefined) => {
     setFilters(prev => ({ ...prev, [name]: value }));
@@ -100,9 +101,9 @@ export function DemandDashboardClient({
   const handleSubmitFilters = async (e: FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setIsLoadingExtras(true); // Also indicate loading for extra cards
+    setIsLoadingExtras(true); 
     try {
-      const formattedDate = filters.date ? format(filters.date, 'yyyy-MM-dd') : undefined;
+      const formattedDate = filters.date ? format(filters.date, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'); // Default to today if no date
       const currentFilters = { ...filters, date: formattedDate };
       
       const [newFilteredData, newCityData, newClientData, newAreaData, newHotspotData] = await Promise.all([
@@ -130,9 +131,9 @@ export function DemandDashboardClient({
   };
   
   const getDemandTier = (score: number): { label: string; variant: "default" | "secondary" | "destructive" | "outline" } => {
-    if (score > 20) return { label: 'High', variant: 'default' }; // Primary color for high
-    if (score >= 10) return { label: 'Medium', variant: 'secondary' }; // Secondary for medium
-    return { label: 'Low', variant: 'outline' }; // Outline or muted for low
+    if (score > 20) return { label: 'High', variant: 'default' }; 
+    if (score >= 10) return { label: 'Medium', variant: 'secondary' }; 
+    return { label: 'Low', variant: 'outline' }; 
   };
 
   const cityDemandForChart = useMemo(() => cityDemand.slice(0, 10), [cityDemand]);
@@ -145,7 +146,7 @@ export function DemandDashboardClient({
       <Card>
         <CardHeader>
           <CardTitle>Filter Demand Data</CardTitle>
-          <CardDescription>Refine the data displayed in charts and tables below.</CardDescription>
+          <CardDescription>Refine the data displayed in charts and tables below. Defaults to today's data.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmitFilters} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 items-end">
@@ -159,7 +160,7 @@ export function DemandDashboardClient({
                     handleFilterChange('client', selectedValue as ClientName);
                   }
                 }}
-                value={filters.client} 
+                value={filters.client || ALL_CLIENTS_SELECT_ITEM_VALUE} 
               >
                 <SelectTrigger id="client-filter">
                   <SelectValue placeholder="All Clients" />
@@ -174,7 +175,11 @@ export function DemandDashboardClient({
             </div>
             <div>
               <Label htmlFor="date-filter">Date</Label>
-              <DatePicker id="date-filter" date={filters.date} onDateChange={(date) => handleFilterChange('date', date)} />
+              <DatePicker 
+                id="date-filter" 
+                date={filters.date || new Date()} // Default to today in picker
+                onDateChange={(date) => handleFilterChange('date', date)} 
+              />
             </div>
             <div>
               <Label htmlFor="city-filter">City</Label>
@@ -185,7 +190,7 @@ export function DemandDashboardClient({
                 onChange={(e: ChangeEvent<HTMLInputElement>) => handleFilterChange('city', e.target.value)}
               />
             </div>
-            <Button type="submit" disabled={isLoading} className="w-full lg:w-auto">
+            <Button type="submit" disabled={isLoading || isLoadingExtras} className="w-full lg:w-auto">
               {(isLoading || isLoadingExtras) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Apply Filters
             </Button>
@@ -256,7 +261,7 @@ export function DemandDashboardClient({
           </CardContent>
         </Card>
         
-        <Card className="xl:col-span-1"> {/* New card for Top Performing Areas */}
+        <Card className="xl:col-span-1"> 
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><TrendingUp className="text-primary"/> Top Performing Areas</CardTitle>
             <CardDescription>Highest demand areas based on current filters.</CardDescription>
@@ -282,7 +287,7 @@ export function DemandDashboardClient({
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
-        <Card> {/* New card for Multi-Client Hotspots */}
+        <Card> 
             <CardHeader>
                 <CardTitle className="flex items-center gap-2"><Zap className="text-primary"/> Multi-Client Hotspot Cities</CardTitle>
                 <CardDescription>Cities with significant demand from multiple clients.</CardDescription>
@@ -334,7 +339,7 @@ export function DemandDashboardClient({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {demandData.slice(0,20).map(item => { // Display more items, e.g., 20
+                {demandData.map(item => { // Removed .slice(0,20) to show all fetched data
                   const tier = getDemandTier(item.demandScore);
                   return (
                   <TableRow key={item.id}>
@@ -359,3 +364,5 @@ export function DemandDashboardClient({
   );
 }
 
+
+    
