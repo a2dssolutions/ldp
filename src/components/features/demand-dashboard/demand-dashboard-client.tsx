@@ -1,3 +1,4 @@
+
 'use client';
 
 import type { ChangeEvent, FormEvent } from 'react';
@@ -9,13 +10,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { DatePicker } from '@/components/ui/date-picker'; // Assuming you have a DatePicker component
+import { DatePicker } from '@/components/ui/date-picker';
 import { getDemandDataAction } from '@/lib/actions';
 import type { DemandData, ClientName, CityDemand, ClientDemand } from '@/lib/types';
 import { format } from 'date-fns';
 import { AiSuggestionsPlaceholder } from '@/components/features/ai-suggestions-placeholder';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 
 
 const CLIENT_OPTIONS: ClientName[] = ['Zepto', 'Blinkit', 'SwiggyFood', 'SwiggyIM'];
@@ -41,6 +43,24 @@ export function DemandDashboardClient({
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
 
+  const [isClient, setIsClient] = useState(false);
+  const [dynamicPieRadius, setDynamicPieRadius] = useState(90); // Default server/initial client radius
+
+  useEffect(() => {
+    setIsClient(true);
+    // Calculate radius on client mount and potential resize for PieChart
+    const calculateRadius = () => {
+      if (typeof window !== 'undefined') {
+        // Ensure a reasonable positive radius, e.g., min 50, max 120
+        const newRadius = Math.max(50, Math.min(120, window.innerWidth / 4 - 30)); 
+        setDynamicPieRadius(newRadius);
+      }
+    };
+    calculateRadius(); // Initial calculation
+    window.addEventListener('resize', calculateRadius); // Adjust on resize
+    return () => window.removeEventListener('resize', calculateRadius); // Cleanup
+  }, []);
+
   const handleFilterChange = (name: string, value: string | Date | undefined) => {
     setFilters(prev => ({ ...prev, [name]: value }));
   };
@@ -52,7 +72,7 @@ export function DemandDashboardClient({
       const formattedDate = filters.date ? format(filters.date, 'yyyy-MM-dd') : undefined;
       const data = await getDemandDataAction({ ...filters, date: formattedDate });
       setDemandData(data);
-      // Update summaries based on new data (simplified for mock)
+      
       const newCityMap: Record<string, number> = {};
       data.forEach(item => { newCityMap[item.city] = (newCityMap[item.city] || 0) + item.demandScore; });
       setCityDemand(Object.entries(newCityMap).map(([city, totalDemand]) => ({ city, totalDemand })).sort((a,b) => b.totalDemand - a.totalDemand));
@@ -70,7 +90,7 @@ export function DemandDashboardClient({
     }
   };
 
-  const cityDemandForChart = useMemo(() => cityDemand.slice(0, 10), [cityDemand]); // Top 10 cities
+  const cityDemandForChart = useMemo(() => cityDemand.slice(0, 10), [cityDemand]);
   const clientDemandForChart = useMemo(() => clientDemand, [clientDemand]);
 
   return (
@@ -124,19 +144,23 @@ export function DemandDashboardClient({
             <CardDescription>Top 10 cities by total demand score.</CardDescription>
           </CardHeader>
           <CardContent className="h-[300px] sm:h-[350px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={cityDemandForChart}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="city" stroke="hsl(var(--foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="hsl(var(--foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)'}}
-                  labelStyle={{ color: 'hsl(var(--foreground))' }}
-                />
-                <Legend wrapperStyle={{fontSize: "12px"}}/>
-                <Bar dataKey="totalDemand" name="Total Demand" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {isClient ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={cityDemandForChart}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="city" stroke="hsl(var(--foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke="hsl(var(--foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)'}}
+                    labelStyle={{ color: 'hsl(var(--foreground))' }}
+                  />
+                  <Legend wrapperStyle={{fontSize: "12px"}}/>
+                  <Bar dataKey="totalDemand" name="Total Demand" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <Skeleton className="h-full w-full" />
+            )}
           </CardContent>
         </Card>
 
@@ -146,29 +170,33 @@ export function DemandDashboardClient({
             <CardDescription>Distribution of demand across clients.</CardDescription>
           </CardHeader>
           <CardContent className="h-[300px] sm:h-[350px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={clientDemandForChart}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                  outerRadius={Math.min(120, window.innerWidth / 4 - 30)} // Responsive radius
-                  dataKey="totalDemand"
-                  nameKey="client"
-                >
-                  {clientDemandForChart.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)'}}
-                  labelStyle={{ color: 'hsl(var(--foreground))' }}
-                />
-                <Legend wrapperStyle={{fontSize: "12px"}}/>
-              </PieChart>
-            </ResponsiveContainer>
+            {isClient ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={clientDemandForChart}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                    outerRadius={dynamicPieRadius}
+                    dataKey="totalDemand"
+                    nameKey="client"
+                  >
+                    {clientDemandForChart.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)'}}
+                    labelStyle={{ color: 'hsl(var(--foreground))' }}
+                  />
+                  <Legend wrapperStyle={{fontSize: "12px"}}/>
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <Skeleton className="h-full w-full" />
+            )}
           </CardContent>
         </Card>
       </div>
@@ -197,7 +225,7 @@ export function DemandDashboardClient({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {demandData.slice(0,10).map(item => ( // Simple pagination: show first 10
+                {demandData.slice(0,10).map(item => ( 
                   <TableRow key={item.id}>
                     <TableCell>{item.client}</TableCell>
                     <TableCell>{item.city}</TableCell>

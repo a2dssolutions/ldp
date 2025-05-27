@@ -1,20 +1,22 @@
+
 'use client';
 
 import type { ChangeEvent, FormEvent } from 'react';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { DatePicker } from '@/components/ui/date-picker'; // Re-using DatePicker
+import { DatePicker } from '@/components/ui/date-picker';
 import { getHistoricalDemandDataAction } from '@/lib/actions';
 import type { DemandData, ClientName } from '@/lib/types';
 import { format, subDays } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { Loader2, Search } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const CLIENT_OPTIONS: ClientName[] = ['Zepto', 'Blinkit', 'SwiggyFood', 'SwiggyIM'];
 
@@ -29,6 +31,11 @@ export function DemandHistoryClient() {
   const [filters, setFilters] = useState<{ client?: ClientName; city?: string }>({});
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   const handleDateRangeChange = (field: 'from' | 'to', date: Date | undefined) => {
     setDateRange(prev => ({ ...prev, [field]: date }));
@@ -64,7 +71,7 @@ export function DemandHistoryClient() {
     if (!historicalData.length) return [];
     const aggregated: Record<string, { date: string; totalDemand: number }> = {};
     historicalData.forEach(item => {
-      const dateKey = item.date; // Assuming item.date is 'YYYY-MM-DD'
+      const dateKey = item.date; 
       if (!aggregated[dateKey]) {
         aggregated[dateKey] = { date: dateKey, totalDemand: 0 };
       }
@@ -129,19 +136,23 @@ export function DemandHistoryClient() {
             <CardDescription>Total demand score over the selected period.</CardDescription>
           </CardHeader>
           <CardContent className="h-[350px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))"/>
-                <XAxis dataKey="date" fontSize={12} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
-                <YAxis fontSize={12} />
-                <Tooltip 
-                    contentStyle={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)'}}
-                    labelStyle={{ color: 'hsl(var(--foreground))' }}
-                />
-                <Legend wrapperStyle={{fontSize: "12px"}} />
-                <Line type="monotone" dataKey="totalDemand" name="Total Demand" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 6 }} />
-              </LineChart>
-            </ResponsiveContainer>
+            {isClient ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))"/>
+                  <XAxis dataKey="date" fontSize={12} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
+                  <YAxis fontSize={12} />
+                  <Tooltip 
+                      contentStyle={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)'}}
+                      labelStyle={{ color: 'hsl(var(--foreground))' }}
+                  />
+                  <Legend wrapperStyle={{fontSize: "12px"}} />
+                  <Line type="monotone" dataKey="totalDemand" name="Total Demand" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 6 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <Skeleton className="h-full w-full" />
+            )}
           </CardContent>
         </Card>
       )}
