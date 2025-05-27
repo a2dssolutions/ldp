@@ -1,3 +1,4 @@
+
 'use server';
 
 /**
@@ -28,18 +29,20 @@ export async function suggestAreasForJobPosting(
   return suggestAreasForJobPostingFlow(input);
 }
 
-const prompt = ai.definePrompt({
-  name: 'suggestAreasForJobPostingPrompt',
-  input: {schema: SuggestAreasForJobPostingInputSchema},
-  output: {schema: SuggestAreasForJobPostingOutputSchema},
-  prompt: `You are an expert in job market analysis. Given the client and city, you will suggest the top 5 areas to post jobs in.
+// Removed ai.definePrompt for deterministic mock suggestions during testing.
+// const prompt = ai.definePrompt({
+//   name: 'suggestAreasForJobPostingPrompt',
+//   input: {schema: SuggestAreasForJobPostingInputSchema},
+//   output: {schema: SuggestAreasForJobPostingOutputSchema},
+//   prompt: `You are an expert in job market analysis for India. Given the client and city, you will suggest the top 5 areas to post jobs in.
+// Consider factors like population density, business activity, and existing demand for the specified client in that city.
 
-Client: {{{client}}}
-City: {{{city}}}
+// Client: {{{client}}}
+// City: {{{city}}}
 
-Suggest the top 5 areas to post jobs in:
-`,
-});
+// Suggest the top 5 areas to post jobs in for an Indian context:
+// `,
+// });
 
 const suggestAreasForJobPostingFlow = ai.defineFlow(
   {
@@ -47,23 +50,53 @@ const suggestAreasForJobPostingFlow = ai.defineFlow(
     inputSchema: SuggestAreasForJobPostingInputSchema,
     outputSchema: SuggestAreasForJobPostingOutputSchema,
   },
-  async input => {
-    // Placeholder implementation: return some static suggestions.
-    // In the future, this will use real demand data and potentially Gemini suggestions.
-    const placeholderAreas = [
-      'Area 1',
-      'Area 2',
-      'Area 3',
-      'Area 4',
-      'Area 5',
-    ];
+  async (input: SuggestAreasForJobPostingInput): Promise<SuggestAreasForJobPostingOutput> => {
+    console.log(`Generating mock suggestions for city: ${input.city}, client: ${input.client}`);
+    let suggestedAreas: string[] = [];
 
-    // Call the prompt to get the suggestions
-    const {output} = await prompt(input);
+    switch (input.city.toLowerCase()) {
+      case 'delhi':
+        suggestedAreas = ['Connaught Place', 'Saket', 'Lajpat Nagar', 'Karol Bagh', 'Dwarka'];
+        break;
+      case 'mumbai':
+        suggestedAreas = ['Bandra', 'Andheri', 'Dadar', 'Juhu', 'Colaba'];
+        break;
+      case 'bangalore':
+        suggestedAreas = ['Koramangala', 'Indiranagar', 'Whitefield', 'HSR Layout', 'Electronic City'];
+        break;
+      case 'chennai':
+        suggestedAreas = ['T. Nagar', 'Anna Nagar', 'Velachery', 'Adyar', 'OMR'];
+        break;
+      case 'kolkata':
+        suggestedAreas = ['Park Street', 'Salt Lake', 'New Town', 'Ballygunge', 'Howrah'];
+        break;
+      case 'hyderabad':
+        suggestedAreas = ['Banjara Hills', 'Jubilee Hills', 'Gachibowli', 'Madhapur', 'Kukatpally'];
+        break;
+      case 'pune':
+        suggestedAreas = ['Koregaon Park', 'Viman Nagar', 'Hinjewadi', 'Kothrud', 'Baner'];
+        break;
+      default:
+        suggestedAreas = [
+          `Generic Area 1 for ${input.city}`,
+          `Generic Area 2 for ${input.city}`,
+          `Generic Area 3 for ${input.city}`,
+          `Generic Area 4 for ${input.city}`,
+          `Generic Area 5 for ${input.city}`,
+        ];
+        break;
+    }
+    
+    // If a specific client is 'Zepto', add a Zepto-specific suggestion if not already full
+    if (input.client.toLowerCase() === 'zepto' && suggestedAreas.length < 5) {
+        suggestedAreas.push(`Zepto Hub in ${input.city}`);
+    } else if (input.client.toLowerCase() === 'blinkit'  && suggestedAreas.length < 5) {
+        suggestedAreas.push(`Blinkit Darkstore Area ${input.city}`);
+    }
 
-    // Return the placeholder areas as suggestions.
+
     return {
-      areas: placeholderAreas,
+      areas: suggestedAreas.slice(0, 5), // Ensure only 5 areas are returned
     };
   }
 );
