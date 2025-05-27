@@ -19,6 +19,8 @@ import { Loader2, Search } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const CLIENT_OPTIONS: ClientName[] = ['Zepto', 'Blinkit', 'SwiggyFood', 'SwiggyIM'];
+const ALL_CLIENTS_SELECT_ITEM_VALUE_HISTORY = "_ALL_CLIENTS_HISTORY_";
+
 
 interface DateRange {
   from?: Date;
@@ -41,8 +43,12 @@ export function DemandHistoryClient() {
     setDateRange(prev => ({ ...prev, [field]: date }));
   };
 
-  const handleFilterChange = (name: string, value: string) => {
-    setFilters(prev => ({ ...prev, [name]: value }));
+  const handleFilterChange = (name: 'client' | 'city', value: ClientName | string | undefined) => {
+    if (name === 'client') {
+      setFilters(prev => ({ ...prev, client: value as ClientName | undefined }));
+    } else if (name === 'city') {
+      setFilters(prev => ({ ...prev, city: value as string | undefined }));
+    }
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -55,7 +61,7 @@ export function DemandHistoryClient() {
     try {
       const result = await getHistoricalDemandDataAction(
         { start: format(dateRange.from, 'yyyy-MM-dd'), end: format(dateRange.to, 'yyyy-MM-dd') },
-        filters
+        filters // filters.client will be ClientName or undefined
       );
       setHistoricalData(result);
       toast({ title: "History Loaded", description: `Found ${result.length} records for the selected period.` });
@@ -100,12 +106,21 @@ export function DemandHistoryClient() {
             </div>
             <div>
               <Label htmlFor="client-filter-hist">Client</Label>
-              <Select onValueChange={(value) => handleFilterChange('client', value as ClientName)} value={filters.client}>
+              <Select
+                onValueChange={(selectedValue) => {
+                  if (selectedValue === ALL_CLIENTS_SELECT_ITEM_VALUE_HISTORY) {
+                    handleFilterChange('client', undefined);
+                  } else {
+                    handleFilterChange('client', selectedValue as ClientName);
+                  }
+                }}
+                value={filters.client} // filters.client can be undefined
+              >
                 <SelectTrigger id="client-filter-hist">
                   <SelectValue placeholder="All Clients" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Clients</SelectItem>
+                  <SelectItem value={ALL_CLIENTS_SELECT_ITEM_VALUE_HISTORY}>All Clients</SelectItem>
                   {CLIENT_OPTIONS.map(client => (
                     <SelectItem key={client} value={client}>{client}</SelectItem>
                   ))}

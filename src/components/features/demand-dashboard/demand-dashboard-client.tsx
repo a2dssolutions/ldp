@@ -22,6 +22,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 const CLIENT_OPTIONS: ClientName[] = ['Zepto', 'Blinkit', 'SwiggyFood', 'SwiggyIM'];
 const CHART_COLORS = ['hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'];
+const ALL_CLIENTS_SELECT_ITEM_VALUE = "_ALL_CLIENTS_DASHBOARD_";
 
 
 interface DemandDashboardClientProps {
@@ -44,24 +45,22 @@ export function DemandDashboardClient({
   const { toast } = useToast();
 
   const [isClient, setIsClient] = useState(false);
-  const [dynamicPieRadius, setDynamicPieRadius] = useState(90); // Default server/initial client radius
+  const [dynamicPieRadius, setDynamicPieRadius] = useState(90); 
 
   useEffect(() => {
     setIsClient(true);
-    // Calculate radius on client mount and potential resize for PieChart
     const calculateRadius = () => {
       if (typeof window !== 'undefined') {
-        // Ensure a reasonable positive radius, e.g., min 50, max 120
         const newRadius = Math.max(50, Math.min(120, window.innerWidth / 4 - 30)); 
         setDynamicPieRadius(newRadius);
       }
     };
-    calculateRadius(); // Initial calculation
-    window.addEventListener('resize', calculateRadius); // Adjust on resize
-    return () => window.removeEventListener('resize', calculateRadius); // Cleanup
+    calculateRadius(); 
+    window.addEventListener('resize', calculateRadius); 
+    return () => window.removeEventListener('resize', calculateRadius); 
   }, []);
 
-  const handleFilterChange = (name: string, value: string | Date | undefined) => {
+  const handleFilterChange = (name: string, value: string | Date | ClientName | undefined) => {
     setFilters(prev => ({ ...prev, [name]: value }));
   };
 
@@ -70,7 +69,7 @@ export function DemandDashboardClient({
     setIsLoading(true);
     try {
       const formattedDate = filters.date ? format(filters.date, 'yyyy-MM-dd') : undefined;
-      const data = await getDemandDataAction({ ...filters, date: formattedDate });
+      const data = await getDemandDataAction({ ...filters, date: formattedDate, client: filters.client });
       setDemandData(data);
       
       const newCityMap: Record<string, number> = {};
@@ -104,12 +103,21 @@ export function DemandDashboardClient({
           <form onSubmit={handleSubmitFilters} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 items-end">
             <div>
               <Label htmlFor="client-filter">Client</Label>
-              <Select onValueChange={(value) => handleFilterChange('client', value as ClientName)} value={filters.client}>
+              <Select
+                onValueChange={(selectedValue) => {
+                  if (selectedValue === ALL_CLIENTS_SELECT_ITEM_VALUE) {
+                    handleFilterChange('client', undefined);
+                  } else {
+                    handleFilterChange('client', selectedValue as ClientName);
+                  }
+                }}
+                value={filters.client} // filters.client can be undefined
+              >
                 <SelectTrigger id="client-filter">
                   <SelectValue placeholder="All Clients" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Clients</SelectItem>
+                  <SelectItem value={ALL_CLIENTS_SELECT_ITEM_VALUE}>All Clients</SelectItem>
                   {CLIENT_OPTIONS.map(client => (
                     <SelectItem key={client} value={client}>{client}</SelectItem>
                   ))}
