@@ -1,11 +1,11 @@
 
 'use server';
 
-import { 
-  fetchAllSheetsData as serviceFetchAllSheets, 
+import {
+  fetchAllSheetsData as serviceFetchAllSheets,
 } from '@/lib/services/google-sheet-service';
-import { 
-  saveDemandDataToStore, 
+import {
+  saveDemandDataToStore,
   clearAllDemandDataFromStore, // Added import
   getDemandData as serviceGetDemand,
   getHistoricalDemandData as serviceGetHistorical,
@@ -29,6 +29,22 @@ const MOCK_INDIAN_DEMAND_DATA: MergedSheetData[] = [
   { id: 'kol-pst-1', client: 'Zepto', city: 'Kolkata', area: 'Park Street', demandScore: 100, timestamp: new Date(Date.now() - 86400000 * 1).toISOString() },
   { id: 'hyd-bh-1', client: 'Blinkit', city: 'Hyderabad', area: 'Banjara Hills', demandScore: 160, timestamp: new Date().toISOString() },
   { id: 'pun-kp-1', client: 'SwiggyIM', city: 'Pune', area: 'Koregaon Park', demandScore: 140, timestamp: new Date(Date.now() - 86400000 * 2).toISOString() },
+  {
+    id: 'lko-vk-1', // Lucknow, Vivek Khand
+    client: 'Blinkit',
+    city: 'Lucknow',
+    area: 'Vivek Khand',
+    demandScore: 60,
+    timestamp: new Date().toISOString() // Today's date
+  },
+  {
+    id: 'lko-gn-1', // Lucknow, Gomti Nagar
+    client: 'Zepto',
+    city: 'Lucknow',
+    area: 'Gomti Nagar',
+    demandScore: 75,
+    timestamp: new Date(Date.now() - 86400000 * 1).toISOString() // Yesterday
+  }
 ];
 
 
@@ -61,7 +77,7 @@ export async function getAiAreaSuggestionsAction(input: SuggestAreasForJobPostin
     return result.areas;
   } catch (error) {
     console.error("Error fetching AI suggestions:", error);
-    return [`Error fetching suggestions for ${input.city}`]; 
+    return [`Error fetching suggestions for ${input.city}`];
   }
 }
 
@@ -75,7 +91,7 @@ export async function getClientDemandSummaryAction(): Promise<ClientDemand[]> {
 
 export async function triggerManualSyncAction(): Promise<{ success: boolean; message: string }> {
   console.log("Manual sync triggered to load MOCK INDIAN DATA...");
-  
+
   try {
     // Clear existing data
     const clearResult = await clearAllDemandDataFromStore();
@@ -101,7 +117,7 @@ export async function triggerManualSyncAction(): Promise<{ success: boolean; mes
 
   // Original live data fetching - commented out for mock data testing
   // console.log("Manual sync triggered action...");
-  // await new Promise(resolve => setTimeout(resolve, 1000)); 
+  // await new Promise(resolve => setTimeout(resolve, 1000));
   // const rawData = await serviceFetchAllSheets();
   // const saveResult = await saveDemandDataToStore(rawData);
   // if (saveResult.success) {
