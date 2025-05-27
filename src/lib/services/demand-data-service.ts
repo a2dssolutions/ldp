@@ -77,8 +77,8 @@ export async function getDemandData(filters?: {
   if (filters?.date) {
     q = query(q, where('date', '==', filters.date));
   }
-  if (filters?.city) {
-     q = query(q, where('city', '==', filters.city));
+  if (filters?.city && filters.city.trim() !== '') { // Updated city filter condition
+     q = query(q, where('city', '==', filters.city.trim()));
   }
   
   q = query(q, orderBy('timestamp', 'desc'), limit(500)); 
@@ -112,8 +112,8 @@ export async function getHistoricalDemandData(
   if (filters?.client) {
     q = query(q, where('client', '==', filters.client));
   }
-  if (filters?.city) {
-     q = query(q, where('city', '==', filters.city));
+  if (filters?.city && filters.city.trim() !== '') { // Updated city filter condition
+     q = query(q, where('city', '==', filters.city.trim()));
   }
 
   q = query(q, orderBy('date', 'asc')); 
@@ -142,7 +142,7 @@ export async function generateAreaSuggestions(client?: ClientName, city?: string
 }
 
 export async function getCityDemandSummary(): Promise<CityDemand[]> {
-  const data = await getDemandData(); 
+  const data = await getDemandData(); // This still fetches all data for global summary on initial load.
   const cityMap: Record<string, number> = {};
   data.forEach(item => {
     cityMap[item.city] = (cityMap[item.city] || 0) + item.demandScore;
@@ -151,7 +151,7 @@ export async function getCityDemandSummary(): Promise<CityDemand[]> {
 }
 
 export async function getClientDemandSummary(): Promise<ClientDemand[]> {
-   const data = await getDemandData(); 
+   const data = await getDemandData(); // This still fetches all data for global summary on initial load.
    const clientMap: Record<string, number> = {};
    data.forEach(item => {
      clientMap[item.client] = (clientMap[item.client] || 0) + item.demandScore;

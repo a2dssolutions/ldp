@@ -69,15 +69,16 @@ export function DemandDashboardClient({
     setIsLoading(true);
     try {
       const formattedDate = filters.date ? format(filters.date, 'yyyy-MM-dd') : undefined;
-      const data = await getDemandDataAction({ ...filters, date: formattedDate, client: filters.client });
-      setDemandData(data);
+      const newFilteredData = await getDemandDataAction({ ...filters, date: formattedDate, client: filters.client });
+      setDemandData(newFilteredData);
       
+      // Re-calculate summaries based on the newFilteredData
       const newCityMap: Record<string, number> = {};
-      data.forEach(item => { newCityMap[item.city] = (newCityMap[item.city] || 0) + item.demandScore; });
+      newFilteredData.forEach(item => { newCityMap[item.city] = (newCityMap[item.city] || 0) + item.demandScore; });
       setCityDemand(Object.entries(newCityMap).map(([city, totalDemand]) => ({ city, totalDemand })).sort((a,b) => b.totalDemand - a.totalDemand));
 
       const newClientMap: Record<string, number> = {};
-      data.forEach(item => { newClientMap[item.client] = (newClientMap[item.client] || 0) + item.demandScore; });
+      newFilteredData.forEach(item => { newClientMap[item.client] = (newClientMap[item.client] || 0) + item.demandScore; });
       setClientDemand(Object.entries(newClientMap).map(([client, totalDemand]) => ({ client: client as ClientName, totalDemand })).sort((a,b) => b.totalDemand - a.totalDemand));
 
       toast({ title: "Filters Applied", description: "Demand data updated."});
