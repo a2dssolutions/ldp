@@ -15,6 +15,14 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
+// Check for essential Firebase configuration
+if (!firebaseConfig.projectId) {
+  throw new Error(
+    "Firebase project ID is not configured. " +
+    "Please ensure NEXT_PUBLIC_FIREBASE_PROJECT_ID is correctly set in your .env file."
+  );
+}
+
 // Initialize Firebase
 let app: FirebaseApp;
 if (!getApps().length) {
