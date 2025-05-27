@@ -138,6 +138,9 @@ export async function clearAllDemandDataFromStore(): Promise<{ success: boolean;
   }
 }
 
+const MAX_PARENT_DOCS_FOR_BROAD_QUERY = 50; // Limit for parent docs when query is broad (e.g. no client/city filter)
+const MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY = 200; // Max parent docs to process if query is specific but still returns many results
+const MAX_RESULTS_TO_CLIENT = 500;      // Limit for final payload size to client
 
 export async function getDemandData(filters?: {
   client?: ClientName;
@@ -150,17 +153,24 @@ export async function getDemandData(filters?: {
   const parentCollectionRef = collection(db, 'demandRecords');
   const qConstraints: QueryConstraint[] = [];
 
-  if (filters?.client) {
+  const isSpecificClientQuery = !!filters?.client;
+  const isSpecificCityQuery = !!(filters?.city && filters.city.trim() !== '');
+  const isBroadQuery = !isSpecificClientQuery && !isSpecificCityQuery;
+
+  if (isSpecificClientQuery) {
     qConstraints.push(where('client', '==', filters.client));
   }
-  if (filters?.city && filters.city.trim() !== '') {
+  if (isSpecificCityQuery) {
      qConstraints.push(where('city', '==', filters.city.trim()));
+  }
+  
+  if (isBroadQuery) {
+    console.warn(`[getDemandData] This is a broad query. Applying limit of ${MAX_PARENT_DOCS_FOR_BROAD_QUERY} parent documents.`);
+    qConstraints.push(limit(MAX_PARENT_DOCS_FOR_BROAD_QUERY));
   }
   
   const finalParentQuery = query(parentCollectionRef, ...qConstraints);
   const demandEntries: DemandData[] = [];
-  const MAX_INDIVIDUAL_DAILY_FETCHES = 200; // Limit for N+1 sub-collection reads
-  const MAX_RESULTS_TO_CLIENT = 500;      // Limit for final payload size
 
   try {
     const parentDocsSnapshot = await getDocs(finalParentQuery);
@@ -169,10 +179,14 @@ export async function getDemandData(filters?: {
       return [];
     }
 
-    const docsToProcess = parentDocsSnapshot.docs.slice(0, MAX_INDIVIDUAL_DAILY_FETCHES);
-    if (parentDocsSnapshot.docs.length > MAX_INDIVIDUAL_DAILY_FETCHES) {
-        console.warn(`[getDemandData] Limiting processing to ${MAX_INDIVIDUAL_DAILY_FETCHES} parent docs out of ${parentDocsSnapshot.docs.length} found.`);
+    let docsToProcess = parentDocsSnapshot.docs;
+
+    // If not a broad query but still many results, apply secondary cap on processing loop
+    if (!isBroadQuery && docsToProcess.length > MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY) {
+      console.warn(`[getDemandData] Specific query returned ${docsToProcess.length} parent docs. Limiting processing loop to ${MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY}.`);
+      docsToProcess = docsToProcess.slice(0, MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY);
     }
+
 
     for (const parentDoc of docsToProcess) {
       const parentData = parentDoc.data() as { client: ClientName; city: string; area: string };
@@ -204,9 +218,16 @@ export async function getDemandData(filters?: {
 
   } catch (error) {
     console.error("Error fetching data from Firestore (getDemandData - new structure):", error);
+     if (error instanceof Error && (error.message.includes('permission-denied') || error.message.includes('code=permission-denied'))) {
+      console.error("Firestore permission denied. Check your Firestore security rules. Path:", parentCollectionRef.path);
+    }
     return [];
   }
 }
+
+const MAX_INDIVIDUAL_HISTORICAL_FETCHES = 100; // Limit for N+1 sub-collection queries for history
+const MAX_HISTORICAL_RESULTS_TO_CLIENT = 1000; // Limit for final historical payload
+
 
 export async function getHistoricalDemandData(
   dateRange: { start: string; end: string }, 
@@ -217,18 +238,25 @@ export async function getHistoricalDemandData(
   const parentCollectionRef = collection(db, 'demandRecords');
   const parentQueryConstraints: QueryConstraint[] = [];
 
-  if (filters?.client) {
+  const isSpecificClientQuery = !!filters?.client;
+  const isSpecificCityQuery = !!(filters?.city && filters.city.trim() !== '');
+
+  if (isSpecificClientQuery) {
     parentQueryConstraints.push(where('client', '==', filters.client));
   }
-  if (filters?.city && filters.city.trim() !== '') {
+  if (isSpecificCityQuery) {
      parentQueryConstraints.push(where('city', '==', filters.city.trim()));
   }
 
+  // Consider adding a limit here too if historical queries without client/city are common and problematic
+  // For now, assuming date range provides some boundary.
+  // if (!isSpecificClientQuery && !isSpecificCityQuery) {
+  //   parentQueryConstraints.push(limit(MAX_PARENT_DOCS_FOR_BROAD_HISTORICAL_QUERY)); // Define this constant
+  // }
+
   const finalParentQuery = query(parentCollectionRef, ...parentQueryConstraints);
   const historicalEntries: DemandData[] = [];
-  const MAX_INDIVIDUAL_HISTORICAL_FETCHES = 100; // Limit for N+1 sub-collection queries for history
-  const MAX_HISTORICAL_RESULTS_TO_CLIENT = 1000; // Limit for final historical payload
-
+  
   try {
     const parentDocsSnapshot = await getDocs(finalParentQuery);
     if (parentDocsSnapshot.empty) {
@@ -236,9 +264,10 @@ export async function getHistoricalDemandData(
       return [];
     }
 
-    const docsToProcess = parentDocsSnapshot.docs.slice(0, MAX_INDIVIDUAL_HISTORICAL_FETCHES);
-    if (parentDocsSnapshot.docs.length > MAX_INDIVIDUAL_HISTORICAL_FETCHES) {
-        console.warn(`[getHistoricalDemandData] Limiting processing to ${MAX_INDIVIDUAL_HISTORICAL_FETCHES} parent docs out of ${parentDocsSnapshot.docs.length} found.`);
+    let docsToProcess = parentDocsSnapshot.docs;
+    if (docsToProcess.length > MAX_INDIVIDUAL_HISTORICAL_FETCHES) {
+        console.warn(`[getHistoricalDemandData] Query returned ${docsToProcess.length} parent docs. Limiting processing loop to ${MAX_INDIVIDUAL_HISTORICAL_FETCHES}.`);
+        docsToProcess = docsToProcess.slice(0, MAX_INDIVIDUAL_HISTORICAL_FETCHES);
     }
 
     for (const parentDoc of docsToProcess) {
@@ -268,10 +297,10 @@ export async function getHistoricalDemandData(
     }
     
     historicalEntries.sort((a, b) => {
-      if (a.date < b.date) return -1;
-      if (a.date > b.date) return 1;
-      if (a.client < b.client) return -1;
-      if (a.client > b.client) return 1;
+      const dateCompare = a.date.localeCompare(b.date);
+      if (dateCompare !== 0) return dateCompare;
+      const clientCompare = a.client.localeCompare(b.client);
+      if (clientCompare !== 0) return clientCompare;
       return b.demandScore - a.demandScore; // Secondary sort by demand score
     });
     
@@ -284,11 +313,15 @@ export async function getHistoricalDemandData(
 
   } catch (error) {
     console.error("Error fetching historical data from Firestore (new structure):", error);
+    if (error instanceof Error && (error.message.includes('permission-denied') || error.message.includes('code=permission-denied'))) {
+      console.error("Firestore permission denied. Check your Firestore security rules. Path:", parentCollectionRef.path);
+    }
     return [];
   }
 }
 
 export async function getCityDemandSummary(): Promise<CityDemand[]> {
+  // Uses getDemandData which now has a limit for broad queries.
   const data = await getDemandData(); 
   const cityMap: Record<string, number> = {};
   data.forEach(item => {
@@ -298,6 +331,7 @@ export async function getCityDemandSummary(): Promise<CityDemand[]> {
 }
 
 export async function getClientDemandSummary(): Promise<ClientDemand[]> {
+   // Uses getDemandData which now has a limit for broad queries.
    const data = await getDemandData();
    const clientMap: Record<string, number> = {};
    data.forEach(item => {
