@@ -1,5 +1,7 @@
 
 export type ClientName = 'Zepto' | 'Blinkit' | 'SwiggyFood' | 'SwiggyIM';
+export const ALL_CLIENT_NAMES: ClientName[] = ['Zepto', 'Blinkit', 'SwiggyFood', 'SwiggyIM'];
+
 
 export interface RawSheetData {
   id: string;
@@ -42,22 +44,12 @@ export interface MultiClientHotspotCity {
   clientCount: number;
 }
 
-export interface AreaSuggestion {
-  area: string;
-  reason?: string; // Optional reason for suggestion
+export interface CityWithSingleClient {
+  city: string;
+  client: ClientName;
 }
 
-// For forecasting flow
-export interface ForecastDemandInput {
-  client?: ClientName;
-  city?: string;
-  area?: string;
-  historicalDays?: number; // Number of past days data to consider
-}
-
-export interface ForecastDemandOutput {
-  forecastPeriod: string; // e.g., "Next 7 days"
-  predictedDemandTrend: string; // e.g., "Stable", "Increasing", "Decreasing"
-  confidence?: string; // e.g., "High", "Medium", "Low"
-  narrative: string; // Textual explanation
+export interface PostingSuggestions {
+  commonCities: string[];
+  singleClientCities: CityWithSingleClient[];
 }

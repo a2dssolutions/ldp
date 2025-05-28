@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { BarChartBig, LayoutDashboard, DatabaseZap, History as HistoryIcon, ShieldCheck, Settings, UserCircle, Menu } from 'lucide-react'; // Removed Lightbulb, TrendingUpIcon
+import { BarChartBig, LayoutDashboard, DatabaseZap, History as HistoryIcon, ShieldCheck, Settings, UserCircle, Menu, Lightbulb } from 'lucide-react';
 import {
   SidebarProvider,
   Sidebar,
@@ -25,9 +25,8 @@ import { cn } from '@/lib/utils';
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/ingestion', label: 'Data Ingestion', icon: DatabaseZap },
-  // { href: '/suggestions', label: 'Area Suggestions', icon: Lightbulb }, // Removed
+  { href: '/posting-suggestions', label: 'Posting Suggestions', icon: Lightbulb },
   { href: '/history', label: 'Demand History', icon: HistoryIcon },
-  // { href: '/forecasting', label: 'Demand Forecasting', icon: TrendingUpIcon }, // Removed
   { href: '/admin', label: 'Admin Panel', icon: ShieldCheck },
 ];
 
@@ -166,5 +165,3 @@ export function AppLayout({ children }: { children: ReactNode }) {
     </SidebarProvider>
   );
 }
-
-    

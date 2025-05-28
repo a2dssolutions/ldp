@@ -18,7 +18,8 @@ import {
 import { getAppSettings as serviceGetAppSettings, saveAppSettings as serviceSaveAppSettings, type AppSettings } from '@/lib/services/config-service';
 
 
-import type { MergedSheetData, DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity } from '@/lib/types';
+import type { MergedSheetData, DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity, PostingSuggestions, CityWithSingleClient } from '@/lib/types';
+import { format } from 'date-fns';
 
 
 export async function fetchAllSheetsDataAction(clientsToFetch?: ClientName[]): Promise<FetchAllSheetsDataActionResult> {
@@ -68,14 +69,10 @@ export async function triggerManualSyncAction(): Promise<{ success: boolean; mes
 
   try {
     // Step 1: Clear existing data from Firestore.
-    // Note: This will clear ALL data. If selective client sync is intended to only *update* 
-    // those clients without affecting others, this clearing step might need to be more nuanced
-    // or skipped if the save operation correctly overwrites.
-    // For now, a full clear followed by a save of (potentially all) clients is the flow.
     const clearResult = await clearAllDemandDataFromStore();
     if (!clearResult.success) {
-      // Decide if we should stop if clearing fails. For now, we'll log and continue.
       console.error("Failed to clear existing data from Firestore during manual sync:", clearResult.message);
+      // Optionally, return or throw based on severity. For now, logging and continuing.
     } else {
       console.log("Successfully cleared existing data from Firestore.");
     }
@@ -130,4 +127,50 @@ export async function saveAppSettingsAction(settings: Partial<AppSettings>): Pro
   return serviceSaveAppSettings(settings);
 }
 
+export async function getPostingSuggestionsAction(
+  date: string, // YYYY-MM-DD
+  userSelectedClients: ClientName[]
+): Promise<PostingSuggestions> {
+  try {
+    const allDemandDataForDate = await serviceGetDemand({ date });
+
+    if (!allDemandDataForDate || allDemandDataForDate.length === 0) {
+      return { commonCities: [], singleClientCities: [] };
+    }
+
+    const cityToActualClientsMap = new Map<string, Set<ClientName>>();
+
+    allDemandDataForDate.forEach(item => {
+      if (!cityToActualClientsMap.has(item.city)) {
+        cityToActualClientsMap.set(item.city, new Set<ClientName>());
+      }
+      cityToActualClientsMap.get(item.city)!.add(item.client);
+    });
+
+    const commonCitiesResult: string[] = [];
+    const singleClientCitiesResult: CityWithSingleClient[] = [];
+
+    for (const [city, actualClientsInCitySet] of cityToActualClientsMap.entries()) {
+      const participatingSelectedClients = userSelectedClients.filter(sc => actualClientsInCitySet.has(sc));
+
+      if (participatingSelectedClients.length >= 2) {
+        commonCitiesResult.push(city);
+      } else if (participatingSelectedClients.length === 1) {
+        singleClientCitiesResult.push({ city, client: participatingSelectedClients[0] });
+      }
+    }
     
+    // Sort for consistent output
+    commonCitiesResult.sort();
+    singleClientCitiesResult.sort((a,b) => a.city.localeCompare(b.city) || a.client.localeCompare(b.client));
+
+
+    return {
+      commonCities: [...new Set(commonCitiesResult)], // Ensure uniqueness, though logic should handle it
+      singleClientCities: singleClientCitiesResult,
+    };
+  } catch (error) {
+    console.error('Error in getPostingSuggestionsAction:', error);
+    throw new Error(`Failed to generate posting suggestions: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
