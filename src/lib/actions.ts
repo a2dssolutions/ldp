@@ -19,7 +19,12 @@ import { forecastDemand, type ForecastDemandInput, type ForecastDemandOutput } f
 
 import type { MergedSheetData, DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity } from '@/lib/types';
 
-export async function fetchAllSheetsDataAction(): Promise<MergedSheetData[]> {
+interface FetchAllSheetsDataActionResult {
+  allMergedData: MergedSheetData[];
+  errors: Array<{ client: ClientName; message: string }>;
+}
+
+export async function fetchAllSheetsDataAction(): Promise<FetchAllSheetsDataActionResult> {
   return serviceFetchAllSheets();
 }
 
@@ -48,7 +53,6 @@ export async function getAiAreaSuggestionsAction(input: SuggestAreasForJobPostin
     return result.areas;
   } catch (error) {
     console.error("Error fetching AI suggestions:", error);
-    // Provide a more user-friendly error message or specific fallback
     return [`Error: Could not generate suggestions for ${input.city}. Please try again later.`];
   }
 }
@@ -66,7 +70,7 @@ export async function getAreaDemandSummaryAction(filters?: { client?: ClientName
 }
 
 export async function getMultiClientHotspotsAction(filters?: { date?: string }): Promise<MultiClientHotspotCity[]> {
-    return serviceGetMultiClientHotspots(2, 5, filters); // Default: min 2 clients, min 5 demand each
+    return serviceGetMultiClientHotspots(2, 5, filters); 
 }
 
 
@@ -82,19 +86,30 @@ export async function triggerManualSyncAction(): Promise<{ success: boolean; mes
     }
 
     console.log("Fetching live data from Google Sheets...");
-    const liveData = await serviceFetchAllSheets();
-    if (!liveData || liveData.length === 0) {
-      console.warn("No data fetched from Google Sheets. Firestore will remain empty or as it was if clearing failed.");
-      return { success: true, message: "No data fetched from Google Sheets. System may be empty." };
+    const { allMergedData: liveData, errors: fetchErrors } = await serviceFetchAllSheets();
+    
+    let fetchSummary = "";
+    if (fetchErrors.length > 0) {
+      fetchSummary = `Fetched ${liveData.length} records with errors for: ${fetchErrors.map(e => e.client).join(', ')}.`;
+      console.warn(fetchSummary, fetchErrors);
+    } else if (liveData.length === 0) {
+      fetchSummary = "No data fetched from Google Sheets. System may be empty if clearing was successful.";
+      console.warn(fetchSummary);
+    } else {
+      fetchSummary = `Successfully fetched ${liveData.length} records from Google Sheets.`;
+      console.log(fetchSummary);
     }
-    console.log(`Fetched ${liveData.length} records from Google Sheets.`);
 
+    if (!liveData || liveData.length === 0) {
+      return { success: true, message: fetchSummary };
+    }
+    
     console.log("Saving fetched live data to Firestore...");
     const saveResult = await saveDemandDataToStore(liveData);
     if (saveResult.success) {
-      return { success: true, message: `Successfully fetched ${liveData.length} records from Google Sheets and saved to Firestore.` };
+      return { success: true, message: `${fetchSummary} ${saveResult.message}` };
     } else {
-      return { success: false, message: `Failed to save live data to Firestore: ${saveResult.message}` };
+      return { success: false, message: `${fetchSummary} Failed to save live data to Firestore: ${saveResult.message}` };
     }
   } catch (error) {
     console.error("Error during manual live data sync:", error);
