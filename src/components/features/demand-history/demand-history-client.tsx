@@ -206,18 +206,18 @@ export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHi
                 <TableBody>
                   {historicalData.map(item => (
                     <TableRow key={item.id}>
-                      <TableCell>{item.date}</TableCell>
-                      <TableCell>{item.client}</TableCell>
-                      <TableCell>{item.city}</TableCell>
-                      <TableCell>{item.area}</TableCell>
-                      <TableCell>{item.demandScore}</TableCell>
+                      <TableCell className="text-xs sm:text-sm">{item.date}</TableCell>
+                      <TableCell className="text-xs sm:text-sm">{item.client}</TableCell>
+                      <TableCell className="text-xs sm:text-sm">{item.city}</TableCell>
+                      <TableCell className="text-xs sm:text-sm">{item.area}</TableCell>
+                      <TableCell className="text-xs sm:text-sm">{item.demandScore}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             </div>
           ) : (
-            <p className="text-center text-muted-foreground py-4">No historical data found for the selected criteria. Try adjusting your filters or date range.</p>
+            <p className="text-center text-sm text-muted-foreground py-4">No historical data found for the selected criteria. Try adjusting your filters or date range.</p>
           )}
         </CardContent>
       </Card>

@@ -41,8 +41,8 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">Demand Dashboard</h1>
-        <p className="text-muted-foreground">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">Demand Dashboard</h1>
+        <p className="text-sm text-muted-foreground">
           Visualize current demand data, filter by various criteria, and gain insights.
         </p>
       </header>
@@ -75,4 +75,3 @@ function DashboardSkeleton() {
     </div>
   );
 }
-

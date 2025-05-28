@@ -141,33 +141,33 @@ export function DemandForecastingClient() {
           {isLoading && (
             <div className="flex justify-center items-center h-full">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <p className="ml-2">Generating forecast...</p>
+              <p className="ml-2 text-sm">Generating forecast...</p>
             </div>
           )}
           {forecast && !isLoading && (
             <>
               <div>
-                <Label className="text-sm text-muted-foreground">Forecast Period</Label>
-                <p className="font-semibold">{forecast.forecastPeriod}</p>
+                <Label className="text-xs text-muted-foreground">Forecast Period</Label>
+                <p className="text-sm font-semibold">{forecast.forecastPeriod}</p>
               </div>
               <div>
-                <Label className="text-sm text-muted-foreground">Predicted Demand Trend</Label>
-                <p className="font-semibold">{forecast.predictedDemandTrend}</p>
+                <Label className="text-xs text-muted-foreground">Predicted Demand Trend</Label>
+                <p className="text-sm font-semibold">{forecast.predictedDemandTrend}</p>
               </div>
               {forecast.confidence && (
                  <div>
-                    <Label className="text-sm text-muted-foreground">Confidence</Label>
-                    <p className="font-semibold">{forecast.confidence}</p>
+                    <Label className="text-xs text-muted-foreground">Confidence</Label>
+                    <p className="text-sm font-semibold">{forecast.confidence}</p>
                 </div>
               )}
               <div>
-                <Label className="text-sm text-muted-foreground">Narrative</Label>
-                <Textarea value={forecast.narrative} readOnly rows={6} className="bg-muted/30"/>
+                <Label className="text-xs text-muted-foreground">Narrative</Label>
+                <Textarea value={forecast.narrative} readOnly rows={6} className="bg-muted/30 text-sm"/>
               </div>
             </>
           )}
           {!forecast && !isLoading && (
-            <p className="text-center text-muted-foreground pt-10">
+            <p className="text-center text-sm text-muted-foreground pt-10">
               Configure and generate a forecast to see results here.
             </p>
           )}

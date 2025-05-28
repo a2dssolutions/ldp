@@ -93,7 +93,7 @@ export function DemandDashboardClient({
     fetchExtraDataOnMountIfNeeded();
 
     return () => window.removeEventListener('resize', calculateRadius); 
-  }, []); // Removed filters from dependency array to avoid re-fetching on filter change here; handleSubmitFilters handles that.
+  }, []);
 
   const handleFilterChange = (name: string, value: string | Date | ClientName | undefined) => {
     setFilters(prev => ({ ...prev, [name]: value }));
@@ -178,7 +178,7 @@ export function DemandDashboardClient({
               <Label htmlFor="date-filter">Date</Label>
               <DatePicker 
                 id="date-filter" 
-                date={filters.date} // Use filters.date directly
+                date={filters.date} 
                 onDateChange={(date) => handleFilterChange('date', date)} 
               />
             </div>
@@ -273,7 +273,7 @@ export function DemandDashboardClient({
                 {topAreaDemandForChart.map((item, index) => (
                   <li key={index} className="flex justify-between items-center p-2 rounded-md bg-card border">
                     <div>
-                      <p className="font-semibold">{item.area}</p>
+                      <p className="font-semibold text-sm">{item.area}</p>
                       <p className="text-xs text-muted-foreground">{item.city} - Clients: {item.clients.join(', ')}</p>
                     </div>
                     <Badge variant={getDemandTier(item.totalDemand).variant}>{item.totalDemand}</Badge>
@@ -281,7 +281,7 @@ export function DemandDashboardClient({
                 ))}
               </ul>
             ) : (
-              <p className="text-center text-muted-foreground pt-10">No area data available for current filters.</p>
+              <p className="text-center text-sm text-muted-foreground pt-10">No area data available for current filters.</p>
             )}
           </CardContent>
         </Card>
@@ -299,7 +299,7 @@ export function DemandDashboardClient({
                     {multiClientHotspots.slice(0, 5).map((hotspot) => (
                     <li key={hotspot.city} className="p-3 rounded-md bg-card border">
                         <div className="flex justify-between items-center">
-                        <p className="font-semibold text-lg">{hotspot.city}</p>
+                        <p className="font-semibold text-base">{hotspot.city}</p>
                         <Badge variant="default">{hotspot.clientCount} Clients</Badge>
                         </div>
                         <p className="text-sm text-muted-foreground">Active: {hotspot.activeClients.join(', ')}</p>
@@ -308,7 +308,7 @@ export function DemandDashboardClient({
                     ))}
                 </ul>
                 ) : (
-                <p className="text-center text-muted-foreground pt-10">No multi-client hotspots found for current filters.</p>
+                <p className="text-center text-sm text-muted-foreground pt-10">No multi-client hotspots found for current filters.</p>
                 )}
             </CardContent>
         </Card>
@@ -344,12 +344,12 @@ export function DemandDashboardClient({
                   const tier = getDemandTier(item.demandScore);
                   return (
                   <TableRow key={item.id}>
-                    <TableCell>{item.client}</TableCell>
-                    <TableCell>{item.city}</TableCell>
-                    <TableCell>{item.area}</TableCell>
-                    <TableCell>{item.demandScore}</TableCell>
+                    <TableCell className="text-xs sm:text-sm">{item.client}</TableCell>
+                    <TableCell className="text-xs sm:text-sm">{item.city}</TableCell>
+                    <TableCell className="text-xs sm:text-sm">{item.area}</TableCell>
+                    <TableCell className="text-xs sm:text-sm">{item.demandScore}</TableCell>
                     <TableCell><Badge variant={tier.variant}>{tier.label}</Badge></TableCell>
-                    <TableCell>{item.date}</TableCell>
+                    <TableCell className="text-xs sm:text-sm">{item.date}</TableCell>
                   </TableRow>
                 );
                 })}
@@ -357,7 +357,7 @@ export function DemandDashboardClient({
             </Table>
             </div>
           ) : (
-            <p className="text-center text-muted-foreground py-4">No data available for the selected filters.</p>
+            <p className="text-center text-sm text-muted-foreground py-4">No data available for the selected filters.</p>
           )}
         </CardContent>
       </Card>

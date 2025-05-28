@@ -38,8 +38,8 @@ function MainSidebar() {
   return (
     <Sidebar>
       <SidebarHeader className={cn(open ? "p-4" : "p-2", "flex items-center gap-2")}>
-        <BarChartBig className={cn("transition-all duration-300 ease-in-out", open ? "size-8 text-primary" : "size-6 text-primary")} />
-        <h1 className={cn("font-bold text-xl text-foreground transition-opacity duration-300 ease-in-out", open ? "opacity-100" : "opacity-0 pointer-events-none")}>
+        <BarChartBig className={cn("transition-all duration-300 ease-in-out", open ? "size-7 text-primary" : "size-6 text-primary")} /> 
+        <h1 className={cn("font-semibold text-lg text-foreground transition-opacity duration-300 ease-in-out", open ? "opacity-100" : "opacity-0 pointer-events-none")}>
           Demand Hub
         </h1>
       </SidebarHeader>
@@ -89,10 +89,10 @@ function MobileSidebar() {
       </SheetTrigger>
       <SheetContent side="left" className="flex flex-col bg-sidebar text-sidebar-foreground p-0">
         <SidebarHeader className="p-4 flex items-center gap-2 border-b border-sidebar-border">
-          <BarChartBig className="size-8 text-primary" />
-          <h1 className="font-bold text-xl">Demand Hub</h1>
+          <BarChartBig className="size-7 text-primary" />
+          <h1 className="font-semibold text-lg">Demand Hub</h1>
         </SidebarHeader>
-        <nav className="grid gap-2 text-lg font-medium p-4">
+        <nav className="grid gap-2 text-base font-medium p-4"> {/* Adjusted mobile nav text size */}
           {navItems.map((item) => (
             <Link
               key={item.href}
@@ -166,4 +166,3 @@ export function AppLayout({ children }: { children: ReactNode }) {
     </SidebarProvider>
   );
 }
-

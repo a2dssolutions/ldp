@@ -178,7 +178,7 @@ export function DataIngestionClient() {
               <li key={source.client} className="flex items-center justify-between p-2 border rounded-md bg-background/50">
                 <div className="flex items-center gap-2">
                   {getStatusIcon(source.status)}
-                  <span className="font-medium">{source.client}</span>
+                  <span className="text-sm font-medium">{source.client}</span>
                 </div>
                 <div className="text-xs text-muted-foreground truncate" title={source.message}>
                   {source.status === 'initial' && 'Ready'}
@@ -196,7 +196,7 @@ export function DataIngestionClient() {
         {isFetching && sourceStatuses.every(s => s.status === 'pending') && (
           <div className="flex justify-center items-center py-10">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p className="ml-2 text-muted-foreground">Initializing data fetch from all sources...</p>
+            <p className="ml-2 text-sm text-muted-foreground">Initializing data fetch from all sources...</p>
           </div>
         )}
 
@@ -215,11 +215,11 @@ export function DataIngestionClient() {
               <TableBody>
                 {mergedData.map((item) => (
                   <TableRow key={item.id}>
-                    <TableCell>{item.client}</TableCell>
-                    <TableCell>{item.city}</TableCell>
-                    <TableCell>{item.area}</TableCell>
-                    <TableCell>{item.demandScore}</TableCell>
-                    <TableCell>{new Date(item.timestamp).toLocaleString()}</TableCell>
+                    <TableCell className="text-xs sm:text-sm">{item.client}</TableCell>
+                    <TableCell className="text-xs sm:text-sm">{item.city}</TableCell>
+                    <TableCell className="text-xs sm:text-sm">{item.area}</TableCell>
+                    <TableCell className="text-xs sm:text-sm">{item.demandScore}</TableCell>
+                    <TableCell className="text-xs sm:text-sm">{new Date(item.timestamp).toLocaleString()}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -227,8 +227,8 @@ export function DataIngestionClient() {
           </div>
         )}
         {mergedData.length === 0 && !isFetching && sourceStatuses.some(s => s.status !== 'pending' && s.status !== 'initial') && (
-           <div className="text-center py-10 text-muted-foreground">
-             <p>
+           <div className="text-center py-10">
+             <p className="text-sm text-muted-foreground">
                 {sourceStatuses.every(s => s.status === 'error') 
                     ? "All sources failed to fetch. Check status details above." 
                     : sourceStatuses.every(s => s.status === 'empty' || s.status === 'error')
@@ -239,7 +239,7 @@ export function DataIngestionClient() {
            </div>
         )}
          {mergedData.length === 0 && !isFetching && sourceStatuses.every(s => s.status === 'initial') && (
-          <p className="text-center text-muted-foreground py-4">
+          <p className="text-center text-sm text-muted-foreground py-4">
             Click "Fetch Now" to load data.
           </p>
         )}

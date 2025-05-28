@@ -41,14 +41,19 @@ export function AreaSuggestionsClient() {
         city: filters.city,
       });
       setSuggestions(result);
-      if (result.length > 0) {
+      if (result.length > 0 && !result[0].startsWith("Error:")) {
         toast({ title: 'Suggestions Loaded', description: `Found ${result.length} top areas.` });
-      } else {
+      } else if (result[0].startsWith("Error:")) {
+         toast({ title: 'Suggestion Error', description: result[0], variant: 'destructive' });
+      }
+      else {
         toast({ title: 'No Suggestions', description: 'No specific suggestions found for the criteria.' });
       }
     } catch (error) {
       console.error('Failed to get suggestions:', error);
-      toast({ title: 'Error', description: 'Could not fetch suggestions.', variant: 'destructive' });
+      const errorMessage = error instanceof Error ? error.message : 'Could not fetch suggestions.';
+      toast({ title: 'Error', description: errorMessage, variant: 'destructive' });
+      setSuggestions([`Error: ${errorMessage}`]);
     } finally {
       setIsLoading(false);
     }
@@ -119,15 +124,15 @@ export function AreaSuggestionsClient() {
           {!isLoading && suggestions.length > 0 && (
             <ul className="space-y-2">
               {suggestions.map((area, index) => (
-                <li key={index} className="flex items-center gap-2 p-3 bg-accent/20 rounded-md border border-accent/50">
-                  <Sparkles className="h-4 w-4 text-accent-foreground" /> 
-                  <span className="text-sm font-medium text-foreground">{area}</span>
+                <li key={index} className={`flex items-center gap-2 p-3 rounded-md border ${area.startsWith("Error:") ? "bg-destructive/10 border-destructive/50" : "bg-accent/20 border-accent/50"}`}>
+                  {area.startsWith("Error:") ? <Sparkles className="h-4 w-4 text-destructive" /> : <Sparkles className="h-4 w-4 text-accent-foreground" />}
+                  <span className={`text-sm font-medium ${area.startsWith("Error:") ? "text-destructive-foreground" : "text-foreground"}`}>{area}</span>
                 </li>
               ))}
             </ul>
           )}
           {!isLoading && suggestions.length === 0 && (
-            <p className="text-center text-muted-foreground pt-10">
+            <p className="text-center text-sm text-muted-foreground pt-10">
               Enter criteria and click "Get Suggestions" to see results.
             </p>
           )}
