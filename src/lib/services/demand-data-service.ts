@@ -131,13 +131,13 @@ export async function clearAllDemandDataFromStore(): Promise<{ success: boolean;
 }
 
 // Limits for standard dashboard queries
-const MAX_PARENT_DOCS_FOR_BROAD_QUERY = 300; 
-const MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY = 250;
+const MAX_PARENT_DOCS_FOR_BROAD_QUERY = 150; 
+const MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY = 150;
 const MAX_RESULTS_TO_CLIENT = 500;      
 
 // Higher limits for analysis queries (when bypassLimits is true)
-const MAX_PARENT_DOCS_FOR_BROAD_ANALYSIS_QUERY = 750; // Reduced from 1500
-const MAX_DAILY_FETCHES_FOR_SPECIFIC_ANALYSIS_QUERY = 750; // Reduced from 1500
+const MAX_PARENT_DOCS_FOR_BROAD_ANALYSIS_QUERY = 750; 
+const MAX_DAILY_FETCHES_FOR_SPECIFIC_ANALYSIS_QUERY = 750; 
 
 
 export async function getDemandData(filters?: {
@@ -158,18 +158,16 @@ export async function getDemandData(filters?: {
   if (isSpecificClientQuery) {
     qConstraints.push(where('client', '==', filters.client));
   }
-  if (isSpecificCityQuery && filters.city && filters.city.trim() !== '') { // Ensure city is not empty
+  if (isSpecificCityQuery && filters.city && filters.city.trim() !== '') { 
      qConstraints.push(where('city', '==', filters.city.trim()));
   }
   
   if (isBroadQuery) {
-    if (options?.bypassLimits) {
-      console.warn(`[getDemandData] Broad query with bypassLimits. Applying analysis limit of ${MAX_PARENT_DOCS_FOR_BROAD_ANALYSIS_QUERY} parent documents.`);
-      qConstraints.push(limit(MAX_PARENT_DOCS_FOR_BROAD_ANALYSIS_QUERY));
-    } else {
-      console.warn(`[getDemandData] Broad query. Applying default limit of ${MAX_PARENT_DOCS_FOR_BROAD_QUERY} parent documents.`);
-      qConstraints.push(limit(MAX_PARENT_DOCS_FOR_BROAD_QUERY));
-    }
+    const limitToApply = options?.bypassLimits
+      ? MAX_PARENT_DOCS_FOR_BROAD_ANALYSIS_QUERY
+      : MAX_PARENT_DOCS_FOR_BROAD_QUERY;
+    console.warn(`[getDemandData] Broad query (bypassLimits: ${!!options?.bypassLimits}). Applying limit of ${limitToApply} parent documents.`);
+    qConstraints.push(limit(limitToApply));
   }
   
   const finalParentQuery = query(parentCollectionRef, ...qConstraints);
@@ -252,7 +250,7 @@ export async function getHistoricalDemandData(
   if (isSpecificClientQuery) {
     parentQueryConstraints.push(where('client', '==', filters.client));
   }
-  if (isSpecificCityQuery && filters.city && filters.city.trim() !== '') { // Ensure city is not empty
+  if (isSpecificCityQuery && filters.city && filters.city.trim() !== '') { 
      parentQueryConstraints.push(where('city', '==', filters.city.trim()));
   }
 
