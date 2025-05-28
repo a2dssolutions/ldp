@@ -10,77 +10,74 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { ClientName } from '@/lib/types';
-import { FileSpreadsheet, Palette, UserCog, Save } from 'lucide-react';
+import { FileSpreadsheet, Palette, UserCog, Save, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import type { AppSettings } from '@/lib/services/config-service';
+import { saveAppSettingsAction } from '@/lib/actions';
+
 
 interface SettingsClientProps {
-  sheetConfigs: Record<ClientName, string>;
+  initialSettings: AppSettings;
 }
 
-const LOCAL_STORAGE_KEYS = {
-  THEME: 'app-theme',
-  DEFAULT_DATE_RANGE: 'app-default-date-range',
-};
-
-export function SettingsClient({ sheetConfigs: initialSheetConfigs }: SettingsClientProps) {
-  const [sheetUrls, setSheetUrls] = useState<Record<ClientName, string>>(initialSheetConfigs);
-  const [isDarkMode, setIsDarkMode] = useState(false);
-  const [defaultDateRange, setDefaultDateRange] = useState('today');
-  const [hasChanges, setHasChanges] = useState(false); // For data source URLs
+export function SettingsClient({ initialSettings }: SettingsClientProps) {
+  const [sheetUrls, setSheetUrls] = useState<Record<ClientName, string>>(initialSettings.sheetUrls);
+  const [theme, setTheme] = useState<'light' | 'dark'>(initialSettings.theme);
+  const [defaultDateRange, setDefaultDateRange] = useState<string>(initialSettings.defaultDateRange);
+  
+  const [isSaving, setIsSaving] = useState(false);
+  const [hasSheetUrlChanges, setHasSheetUrlChanges] = useState(false);
   const { toast } = useToast();
 
-  // Load settings from localStorage on mount
+  // Apply theme on initial load and when theme state changes
   useEffect(() => {
-    const savedTheme = localStorage.getItem(LOCAL_STORAGE_KEYS.THEME);
-    if (savedTheme === 'dark') {
-      setIsDarkMode(true);
+    if (theme === 'dark') {
       document.documentElement.classList.add('dark');
     } else {
-      setIsDarkMode(false);
       document.documentElement.classList.remove('dark');
     }
+  }, [theme]);
 
-    const savedDateRange = localStorage.getItem(LOCAL_STORAGE_KEYS.DEFAULT_DATE_RANGE);
-    if (savedDateRange) {
-      setDefaultDateRange(savedDateRange);
+  const handleSettingChangeAndSave = async (changedSettings: Partial<AppSettings>) => {
+    setIsSaving(true);
+    const newSettings = { // Construct the full settings object to save
+      sheetUrls: changedSettings.sheetUrls || sheetUrls,
+      theme: changedSettings.theme || theme,
+      defaultDateRange: changedSettings.defaultDateRange || defaultDateRange,
+    };
+    const result = await saveAppSettingsAction(newSettings);
+    if (result.success) {
+      toast({ title: 'Settings Updated', description: result.message });
+      // Update local state if a specific part was changed, e.g. for direct UI feedback
+      if (changedSettings.sheetUrls) setSheetUrls(changedSettings.sheetUrls);
+      if (changedSettings.theme) setTheme(changedSettings.theme);
+      if (changedSettings.defaultDateRange) setDefaultDateRange(changedSettings.defaultDateRange);
+
+    } else {
+      toast({ title: 'Error Updating Settings', description: result.message, variant: 'destructive' });
     }
-  }, []);
-
+    setIsSaving(false);
+  };
+  
   const handleUrlChange = (client: ClientName, value: string) => {
     setSheetUrls(prev => ({ ...prev, [client]: value }));
-    setHasChanges(true);
+    setHasSheetUrlChanges(true);
   };
 
   const handleSaveSheetUrls = () => {
-    // Placeholder for actual saving logic (e.g., API call to update server config or Firestore)
-    console.log('Saving sheet URLs (placeholder):', sheetUrls);
-    toast({
-      title: 'Data Source URLs Updated (Placeholder)',
-      description: 'In a real app, these URLs would be saved to the backend.',
-    });
-    setHasChanges(false);
-    // For now, we're not actually persisting these beyond component state for this iteration.
-    // To make them persist on the client temporarily, you could use localStorage here too,
-    // but ideally, these are server-side settings.
+    handleSettingChangeAndSave({ sheetUrls });
+    setHasSheetUrlChanges(false);
   };
 
-  const handleDarkModeToggle = (checked: boolean) => {
-    setIsDarkMode(checked);
-    if (checked) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem(LOCAL_STORAGE_KEYS.THEME, 'dark');
-      toast({ title: 'Appearance Updated', description: 'Dark mode enabled.' });
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem(LOCAL_STORAGE_KEYS.THEME, 'light');
-      toast({ title: 'Appearance Updated', description: 'Light mode enabled.' });
-    }
+  const handleThemeToggle = (checked: boolean) => {
+    const newTheme = checked ? 'dark' : 'light';
+    setTheme(newTheme); // Local state update for immediate UI change
+    handleSettingChangeAndSave({ theme: newTheme });
   };
 
   const handleDefaultDateRangeChange = (value: string) => {
-    setDefaultDateRange(value);
-    localStorage.setItem(LOCAL_STORAGE_KEYS.DEFAULT_DATE_RANGE, value);
-    toast({ title: 'User Preference Updated', description: `Default dashboard date set to: ${value}` });
+    setDefaultDateRange(value); // Local state update
+    handleSettingChangeAndSave({ defaultDateRange: value });
   };
 
 
@@ -93,29 +90,27 @@ export function SettingsClient({ sheetConfigs: initialSheetConfigs }: SettingsCl
             Data Source Configuration
           </CardTitle>
           <CardDescription>
-            Manage the Google Sheet URLs for each data source.
-            <span className="block mt-1 text-xs text-amber-600 dark:text-amber-400">
-              Note: Saving URL changes here is a UI placeholder for now. Actual persistence requires backend setup.
-            </span>
+            Manage the Google Sheet URLs for each data source. Changes are saved to Firestore.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {Object.entries(sheetUrls).map(([client, url]) => (
+          {(Object.keys(sheetUrls) as ClientName[]).map((client) => (
             <div key={client} className="space-y-1">
-              <Label htmlFor={`sheet-url-${client}`} className="font-semibold">{client as ClientName}</Label>
+              <Label htmlFor={`sheet-url-${client}`} className="font-semibold">{client}</Label>
               <Input
                 id={`sheet-url-${client}`}
-                value={url}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => handleUrlChange(client as ClientName, e.target.value)}
+                value={sheetUrls[client]}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => handleUrlChange(client, e.target.value)}
                 className="bg-background focus:border-primary"
+                disabled={isSaving}
               />
             </div>
           ))}
         </CardContent>
         <CardFooter>
-          <Button onClick={handleSaveSheetUrls} disabled={!hasChanges}>
-            <Save className="mr-2 h-4 w-4" />
-            Save Source URLs (Placeholder)
+          <Button onClick={handleSaveSheetUrls} disabled={isSaving || !hasSheetUrlChanges}>
+            {isSaving && hasSheetUrlChanges ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            Save Source URLs
           </Button>
         </CardFooter>
       </Card>
@@ -140,11 +135,11 @@ export function SettingsClient({ sheetConfigs: initialSheetConfigs }: SettingsCl
             </Label>
             <Switch
               id="dark-mode-switch"
-              checked={isDarkMode}
-              onCheckedChange={handleDarkModeToggle}
+              checked={theme === 'dark'}
+              onCheckedChange={handleThemeToggle}
+              disabled={isSaving}
             />
           </div>
-          {/* <Button variant="outline" className="w-full" disabled>More Appearance Settings (Coming Soon)</Button> */}
         </CardContent>
       </Card>
 
@@ -164,6 +159,7 @@ export function SettingsClient({ sheetConfigs: initialSheetConfigs }: SettingsCl
             <Select
               value={defaultDateRange}
               onValueChange={handleDefaultDateRangeChange}
+              disabled={isSaving}
             >
               <SelectTrigger id="default-date-range">
                 <SelectValue placeholder="Select default range" />
@@ -171,14 +167,12 @@ export function SettingsClient({ sheetConfigs: initialSheetConfigs }: SettingsCl
               <SelectContent>
                 <SelectItem value="today">Today</SelectItem>
                 <SelectItem value="yesterday">Yesterday</SelectItem>
-                {/* Add more relevant options if needed, e.g., Last 7 days */}
               </SelectContent>
             </Select>
              <p className="text-xs text-muted-foreground">
-               This preference will be used on your next visit. (Note: Dashboard doesn't dynamically use this yet)
+               Saved to Firestore. Dashboard uses this for its default date selection.
             </p>
           </div>
-          {/* <Button variant="outline" className="w-full" disabled>Save All Preferences (Coming Soon)</Button> */}
         </CardContent>
       </Card>
     </div>

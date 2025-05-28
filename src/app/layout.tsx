@@ -1,18 +1,19 @@
+
 import type { Metadata } from 'next';
-import { Inter, Roboto_Mono } from 'next/font/google'; // Changed from GeistSans, GeistMono
+import { Inter, Roboto_Mono } from 'next/font/google'; 
 import './globals.css';
 import { AppLayout } from '@/components/layout/app-layout';
 import { Toaster } from "@/components/ui/toaster";
-// Removed: import { AIProvider } from '@genkit-ai/next';
+import { getAppSettingsAction } from '@/lib/actions'; // To fetch theme for initial render
 
 
-const inter = Inter({ // Changed from GeistSans
-  variable: '--font-inter', // Changed variable name
+const inter = Inter({ 
+  variable: '--font-inter', 
   subsets: ['latin'],
 });
 
-const robotoMono = Roboto_Mono({ // Changed from GeistMono
-  variable: '--font-roboto-mono', // Changed variable name
+const robotoMono = Roboto_Mono({ 
+  variable: '--font-roboto-mono', 
   subsets: ['latin'],
 });
 
@@ -21,20 +22,21 @@ export const metadata: Metadata = {
   description: 'Visualize and analyze demand data effectively.',
 };
 
-export default function RootLayout({
+export default async function RootLayout({ // Make RootLayout async
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const appSettings = await getAppSettingsAction();
+  const initialTheme = appSettings.theme;
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className={initialTheme === 'dark' ? 'dark' : ''}>
       <body className={`${inter.variable} ${robotoMono.variable} font-sans antialiased`}>
-        {/* <AIProvider> Removed provider wrapper */}
           <AppLayout>
             {children}
           </AppLayout>
           <Toaster />
-        {/* </AIProvider> Removed provider wrapper */}
       </body>
     </html>
   );

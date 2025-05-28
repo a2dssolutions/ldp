@@ -3,7 +3,7 @@
 
 import {
   fetchAllSheetsData as serviceFetchAllSheets,
-  type FetchAllSheetsDataActionResult, // Import the new result type
+  type FetchAllSheetsDataActionResult,
 } from '@/lib/services/google-sheet-service';
 import {
   saveDemandDataToStore,
@@ -17,12 +17,17 @@ import {
 } from '@/lib/services/demand-data-service';
 import { suggestAreasForJobPosting, type SuggestAreasForJobPostingInput } from '@/ai/flows/suggest-areas-for-job-posting';
 import { forecastDemand, type ForecastDemandInput, type ForecastDemandOutput } from '@/ai/flows/forecast-demand-flow';
+import { getAppSettings as serviceGetAppSettings, saveAppSettings as serviceSaveAppSettings, type AppSettings } from '@/lib/services/config-service';
+
 
 import type { MergedSheetData, DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity } from '@/lib/types';
 
 
 export async function fetchAllSheetsDataAction(): Promise<FetchAllSheetsDataActionResult> {
-  return serviceFetchAllSheets();
+  const appSettings = await serviceGetAppSettings();
+  // Pass appSettings.sheetUrls to serviceFetchAllSheets if it needs dynamic URLs
+  // For now, assuming serviceFetchAllSheets reads its own config or uses a fixed one
+  return serviceFetchAllSheets(appSettings.sheetUrls);
 }
 
 export async function saveDemandDataAction(data: MergedSheetData[]): Promise<{ success: boolean; message: string }> {
@@ -73,18 +78,18 @@ export async function getMultiClientHotspotsAction(filters?: { date?: string }):
 
 export async function triggerManualSyncAction(): Promise<{ success: boolean; message: string }> {
   console.log("Manual sync triggered to load LIVE data from Google Sheets...");
+  const appSettings = await serviceGetAppSettings();
 
   try {
     const clearResult = await clearAllDemandDataFromStore();
     if (!clearResult.success) {
       console.error("Failed to clear existing data from Firestore:", clearResult.message);
-      // Decide if we should proceed if clearing fails. For now, we'll proceed.
     } else {
       console.log(clearResult.message);
     }
 
-    console.log("Fetching live data from Google Sheets...");
-    const { allMergedData: liveData, clientResults } = await serviceFetchAllSheets();
+    console.log("Fetching live data from Google Sheets using configured URLs...");
+    const { allMergedData: liveData, clientResults } = await serviceFetchAllSheets(appSettings.sheetUrls);
     
     const successfulFetches = clientResults.filter(r => r.status === 'success' || r.status === 'empty').length;
     const errorFetches = clientResults.filter(r => r.status === 'error').length;
@@ -105,7 +110,6 @@ export async function triggerManualSyncAction(): Promise<{ success: boolean; mes
     }
 
     if (!liveData || liveData.length === 0) {
-      // Even if there's no data, if there were no errors, it's a "successful" sync in terms of process.
       return { success: errorFetches === 0, message: fetchSummary };
     }
     
@@ -135,3 +139,13 @@ export async function getDemandForecastAction(input: ForecastDemandInput): Promi
     };
   }
 }
+
+// Configuration Actions
+export async function getAppSettingsAction(): Promise<AppSettings> {
+  return serviceGetAppSettings();
+}
+
+export async function saveAppSettingsAction(settings: Partial<AppSettings>): Promise<{ success: boolean; message: string }> {
+  return serviceSaveAppSettings(settings);
+}
+
