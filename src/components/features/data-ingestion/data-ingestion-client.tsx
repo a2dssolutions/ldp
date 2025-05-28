@@ -35,7 +35,7 @@ export function DataIngestionClient() {
     ALL_CLIENT_NAMES.map(client => ({ client, status: 'initial', rowCount: 0 }))
   );
   
-  const [selectedClientsToFetch, setSelectedClientsToFetch] = useState<ClientName[]>([]);
+  const [selectedClientsToFetch, setSelectedClientsToFetch] = useState<ClientName[]>(ALL_CLIENT_NAMES); // Default to all clients selected
   const [selectedClientsToUpload, setSelectedClientsToUpload] = useState<ClientName[]>([]);
 
   const [isFetching, setIsFetching] = useState(false);
@@ -82,11 +82,12 @@ export function DataIngestionClient() {
 
 
     setSourceStatuses(prevStatuses =>
-      prevStatuses.map(s =>
-        selectedClientsToFetch.includes(s.client)
-          ? { ...s, status: 'pending', rowCount: 0, message: 'Fetching...' }
-          : { ...s, status: 'not-fetched', message: 'Not included in this fetch.', rowCount: 0 } 
-      )
+      ALL_CLIENT_NAMES.map(clientName => ({ // Reset all statuses based on current selection
+        client: clientName,
+        status: selectedClientsToFetch.includes(clientName) ? 'pending' : 'not-fetched',
+        rowCount: 0,
+        message: selectedClientsToFetch.includes(clientName) ? 'Fetching...' : 'Not included in this fetch.',
+      }))
     );
     
     try {
@@ -116,12 +117,12 @@ export function DataIngestionClient() {
             message: clientResult.message
           } as SourceStatus;
         }
-        // If a client was selected for fetch but no result came back (should not happen with current service logic)
-        // or if it wasn't selected for fetch.
-        const existingStatus = sourceStatuses.find(s => s.client === clientName);
-        return existingStatus && existingStatus.status === 'not-fetched' 
-            ? existingStatus 
-            : { client: clientName, status: 'initial', message: 'Not fetched.', rowCount: 0 } as SourceStatus;
+        // If a client was not part of the fetch operation at all (wasn't in selectedClientsToFetch)
+        if (!selectedClientsToFetch.includes(clientName)) {
+          return { client: clientName, status: 'not-fetched', message: 'Not included in this fetch.', rowCount: 0 } as SourceStatus;
+        }
+        // Fallback for unexpected cases, though ideally all selected clients should have a result
+        return { client: clientName, status: 'initial', message: 'Status unknown.', rowCount: 0 } as SourceStatus;
       });
       setSourceStatuses(updatedStatuses);
 
@@ -236,7 +237,7 @@ export function DataIngestionClient() {
       <CardHeader>
         <CardTitle>Ingest Demand Data</CardTitle>
         <CardDescription>
-          Select clients, then "Fetch Now" to retrieve data. Preview the data below, then select clients and "Upload to System" to save it.
+          Select clients, then "Fetch Selected Clients" to retrieve data. Preview the data below, then select clients and "Upload Selected to System" to save it.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -382,4 +383,5 @@ export function DataIngestionClient() {
   );
 }
 
+    
     
