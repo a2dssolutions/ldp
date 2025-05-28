@@ -3,6 +3,7 @@
 
 import {
   fetchAllSheetsData as serviceFetchAllSheets,
+  type FetchAllSheetsDataActionResult, // Import the new result type
 } from '@/lib/services/google-sheet-service';
 import {
   saveDemandDataToStore,
@@ -19,10 +20,6 @@ import { forecastDemand, type ForecastDemandInput, type ForecastDemandOutput } f
 
 import type { MergedSheetData, DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity } from '@/lib/types';
 
-interface FetchAllSheetsDataActionResult {
-  allMergedData: MergedSheetData[];
-  errors: Array<{ client: ClientName; message: string }>;
-}
 
 export async function fetchAllSheetsDataAction(): Promise<FetchAllSheetsDataActionResult> {
   return serviceFetchAllSheets();
@@ -81,27 +78,35 @@ export async function triggerManualSyncAction(): Promise<{ success: boolean; mes
     const clearResult = await clearAllDemandDataFromStore();
     if (!clearResult.success) {
       console.error("Failed to clear existing data from Firestore:", clearResult.message);
+      // Decide if we should proceed if clearing fails. For now, we'll proceed.
     } else {
       console.log(clearResult.message);
     }
 
     console.log("Fetching live data from Google Sheets...");
-    const { allMergedData: liveData, errors: fetchErrors } = await serviceFetchAllSheets();
+    const { allMergedData: liveData, clientResults } = await serviceFetchAllSheets();
     
-    let fetchSummary = "";
-    if (fetchErrors.length > 0) {
-      fetchSummary = `Fetched ${liveData.length} records with errors for: ${fetchErrors.map(e => e.client).join(', ')}.`;
-      console.warn(fetchSummary, fetchErrors);
-    } else if (liveData.length === 0) {
-      fetchSummary = "No data fetched from Google Sheets. System may be empty if clearing was successful.";
+    const successfulFetches = clientResults.filter(r => r.status === 'success' || r.status === 'empty').length;
+    const errorFetches = clientResults.filter(r => r.status === 'error').length;
+    let fetchSummary = `Fetched ${liveData.length} total records. ${successfulFetches} sources processed, ${errorFetches} sources failed.`;
+    
+    clientResults.forEach(res => {
+        console.log(`Client: ${res.client}, Status: ${res.status}, Rows: ${res.rowCount}, Message: ${res.message || ''}`);
+    });
+
+    if (liveData.length === 0 && errorFetches === 0) {
+      fetchSummary += " No data was found in any successfully processed source.";
       console.warn(fetchSummary);
+    } else if (liveData.length === 0 && errorFetches > 0) {
+      fetchSummary += " No data was retrieved due to errors in all sources or empty sources.";
+      console.error(fetchSummary);
     } else {
-      fetchSummary = `Successfully fetched ${liveData.length} records from Google Sheets.`;
       console.log(fetchSummary);
     }
 
     if (!liveData || liveData.length === 0) {
-      return { success: true, message: fetchSummary };
+      // Even if there's no data, if there were no errors, it's a "successful" sync in terms of process.
+      return { success: errorFetches === 0, message: fetchSummary };
     }
     
     console.log("Saving fetched live data to Firestore...");

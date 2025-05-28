@@ -6,19 +6,24 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { fetchAllSheetsDataAction, saveDemandDataAction } from '@/lib/actions';
+import { fetchAllSheetsDataAction } from '@/lib/actions';
 import type { MergedSheetData, ClientName } from '@/lib/types';
+import type { ClientFetchResult } from '@/lib/services/google-sheet-service'; // Import the new type
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, UploadCloud, FileText, AlertTriangle } from 'lucide-react';
+import { Loader2, UploadCloud, FileText, AlertTriangle, CheckCircle, XCircle, FileQuestion, Info } from 'lucide-react';
 
-interface FetchError {
-  client: ClientName;
-  message: string;
+const CLIENT_OPTIONS_ORDER: ClientName[] = ['Zepto', 'Blinkit', 'SwiggyFood', 'SwiggyIM'];
+
+interface SourceStatus extends ClientFetchResult {
+  status: 'pending' | 'success' | 'error' | 'empty'; // Override status to include pending
 }
+
 
 export function DataIngestionClient() {
   const [mergedData, setMergedData] = useState<MergedSheetData[]>([]);
-  const [fetchErrors, setFetchErrors] = useState<FetchError[]>([]);
+  const [sourceStatuses, setSourceStatuses] = useState<SourceStatus[]>(
+    CLIENT_OPTIONS_ORDER.map(client => ({ client, status: 'pending', rowCount: 0 }))
+  );
   const [isFetching, setIsFetching] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const { toast } = useToast();
@@ -26,27 +31,42 @@ export function DataIngestionClient() {
   const handleFetchData = async () => {
     setIsFetching(true);
     setMergedData([]); 
-    setFetchErrors([]);
+    setSourceStatuses(CLIENT_OPTIONS_ORDER.map(client => ({ client, status: 'pending', rowCount: 0 })));
+    
     try {
       const result = await fetchAllSheetsDataAction();
       setMergedData(result.allMergedData);
-      setFetchErrors(result.errors);
+      
+      // Update sourceStatuses based on result.clientResults
+      const updatedStatuses = CLIENT_OPTIONS_ORDER.map(clientName => {
+        const clientResult = result.clientResults.find(cr => cr.client === clientName);
+        if (clientResult) {
+          return clientResult as SourceStatus; // Cast because server result won't have 'pending'
+        }
+        // Should not happen if server returns all attempted clients
+        return { client: clientName, status: 'error', message: 'Status not reported by server.', rowCount: 0 } as SourceStatus;
+      });
+      setSourceStatuses(updatedStatuses);
 
-      if (result.errors.length > 0) {
+      const successCount = result.clientResults.filter(r => r.status === 'success').length;
+      const emptyCount = result.clientResults.filter(r => r.status === 'empty').length;
+      const errorCount = result.clientResults.filter(r => r.status === 'error').length;
+
+      if (errorCount > 0) {
         toast({
-          title: 'Data Fetched with Errors',
-          description: `Fetched ${result.allMergedData.length} records. Some sources had issues. Check details below.`,
-          variant: 'default', // Default variant, errors shown in alerts
+          title: 'Data Fetched with Some Errors',
+          description: `${successCount} sources succeeded, ${emptyCount} empty, ${errorCount} failed. ${result.allMergedData.length} total records fetched. Check details below.`,
+          variant: 'default', 
         });
-      } else if (result.allMergedData.length === 0) {
+      } else if (result.allMergedData.length === 0 && successCount === 0 && emptyCount > 0) {
         toast({
           title: 'No Data Fetched',
-          description: 'No records were found from any source.',
+          description: 'All sources were processed but returned no data rows.',
         });
       } else {
         toast({
           title: 'Data Fetched Successfully',
-          description: `Successfully fetched ${result.allMergedData.length} records from all sources.`,
+          description: `Successfully fetched ${result.allMergedData.length} records. ${successCount} sources succeeded, ${emptyCount} empty.`,
         });
       }
     } catch (error) {
@@ -56,17 +76,23 @@ export function DataIngestionClient() {
         description: 'Could not fetch data. Please try again.',
         variant: 'destructive',
       });
-      setFetchErrors([{ client: 'System' as any, message: 'An unexpected error occurred while trying to fetch data.' }]);
+      setSourceStatuses(CLIENT_OPTIONS_ORDER.map(client => ({ 
+        client, 
+        status: 'error', 
+        message: 'An unexpected error occurred during fetch.', 
+        rowCount: 0 
+      })));
     } finally {
       setIsFetching(false);
     }
   };
 
   const handleUploadData = async () => {
-    if (mergedData.length === 0) {
+    if (mergedData.length === 0 && !sourceStatuses.some(s => s.status === 'success' && s.rowCount > 0)) {
+        // Check if there was any successful data even if mergedData is empty due to filtering later
       toast({
         title: 'No Data to Upload',
-        description: 'Fetch data first before uploading.',
+        description: 'Fetch data first or ensure some sources fetched data successfully.',
         variant: 'destructive',
       });
       return;
@@ -97,6 +123,17 @@ export function DataIngestionClient() {
       setIsUploading(false);
     }
   };
+  
+  const getStatusIcon = (status: SourceStatus['status']) => {
+    switch (status) {
+      case 'pending': return <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
+      case 'success': return <CheckCircle className="h-4 w-4 text-green-500" />;
+      case 'error': return <XCircle className="h-4 w-4 text-red-500" />;
+      case 'empty': return <FileQuestion className="h-4 w-4 text-yellow-500" />;
+      default: return <Info className="h-4 w-4 text-muted-foreground" />;
+    }
+  };
+
 
   return (
     <Card>
@@ -117,7 +154,7 @@ export function DataIngestionClient() {
             )}
             Fetch Now
           </Button>
-          <Button onClick={handleUploadData} disabled={isUploading || mergedData.length === 0 || isFetching} variant="outline">
+          <Button onClick={handleUploadData} disabled={isUploading || (mergedData.length === 0 && !sourceStatuses.some(s => s.status === 'success' && s.rowCount > 0)) || isFetching} variant="outline">
             {isUploading ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
@@ -127,22 +164,31 @@ export function DataIngestionClient() {
           </Button>
         </div>
 
-        {fetchErrors.length > 0 && (
-          <div className="space-y-2">
-            {fetchErrors.map((error, index) => (
-              <Alert key={index} variant="destructive">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>Error Fetching Data for: {error.client}</AlertTitle>
-                <AlertDescription>{error.message}</AlertDescription>
-              </Alert>
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-muted-foreground">Source Statuses:</h3>
+          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {sourceStatuses.map((source) => (
+              <li key={source.client} className="flex items-center justify-between p-2 border rounded-md bg-background/50">
+                <div className="flex items-center gap-2">
+                  {getStatusIcon(source.status)}
+                  <span className="font-medium">{source.client}</span>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {source.status === 'pending' && 'Fetching...'}
+                  {source.status === 'success' && `Success (${source.rowCount} rows)`}
+                  {source.status === 'empty' && (source.message || 'No data')}
+                  {source.status === 'error' && (source.message || 'Failed')}
+                </div>
+              </li>
             ))}
-          </div>
-        )}
+          </ul>
+        </div>
 
-        {isFetching && (
+
+        {isFetching && sourceStatuses.every(s => s.status === 'pending') && (
           <div className="flex justify-center items-center py-10">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p className="ml-2 text-muted-foreground">Fetching data...</p>
+            <p className="ml-2 text-muted-foreground">Initializing data fetch...</p>
           </div>
         )}
 
@@ -172,16 +218,22 @@ export function DataIngestionClient() {
             </Table>
           </div>
         )}
-        {mergedData.length === 0 && !isFetching && fetchErrors.length === 0 && (
+        {mergedData.length === 0 && !isFetching && sourceStatuses.some(s => s.status !== 'pending') && (
            <div className="text-center py-10 text-muted-foreground">
-             <p>No data fetched yet. Click "Fetch Now" to begin.</p>
+             <p>
+                {sourceStatuses.every(s => s.status === 'error') 
+                    ? "All sources failed to fetch. Check status details above." 
+                    : sourceStatuses.every(s => s.status === 'empty' || s.status === 'error')
+                    ? "No data was found in any source, or sources failed. Check status details above."
+                    : "No data to display. Fetch may have completed with no records or only errors."
+                }
+             </p>
            </div>
         )}
       </CardContent>
       <CardFooter>
         <p className="text-xs text-muted-foreground">
-          {mergedData.length > 0 ? `${mergedData.length} records loaded for preview.` : "Data will appear here after fetching."}
-          {fetchErrors.length > 0 ? ` ${fetchErrors.length} source(s) had errors.` : ""}
+          {mergedData.length > 0 ? `${mergedData.length} records loaded for preview.` : !isFetching ? "Data preview will appear here after fetching." : "Fetching data..."}
         </p>
       </CardFooter>
     </Card>
