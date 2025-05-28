@@ -5,24 +5,26 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { fetchAllSheetsDataAction } from '@/lib/actions';
+import { fetchAllSheetsDataAction, saveDemandDataAction } from '@/lib/actions'; // Added saveDemandDataAction
 import type { MergedSheetData, ClientName } from '@/lib/types';
-import type { ClientFetchResult } from '@/lib/services/google-sheet-service'; // Import the new type
+import type { ClientFetchResult } from '@/lib/services/google-sheet-service';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, UploadCloud, FileText, AlertTriangle, CheckCircle, XCircle, FileQuestion, Info } from 'lucide-react';
 
 const CLIENT_OPTIONS_ORDER: ClientName[] = ['Zepto', 'Blinkit', 'SwiggyFood', 'SwiggyIM'];
 
-interface SourceStatus extends ClientFetchResult {
-  status: 'pending' | 'success' | 'error' | 'empty'; // Override status to include pending
+interface SourceStatus extends Omit<ClientFetchResult, 'status'> { // Omit original status
+  client: ClientName; // Ensure client is always present
+  status: 'initial' | 'pending' | 'success' | 'error' | 'empty'; // Add 'initial' and ensure client is required
+  message?: string;
+  rowCount: number;
 }
 
 
 export function DataIngestionClient() {
   const [mergedData, setMergedData] = useState<MergedSheetData[]>([]);
   const [sourceStatuses, setSourceStatuses] = useState<SourceStatus[]>(
-    CLIENT_OPTIONS_ORDER.map(client => ({ client, status: 'pending', rowCount: 0 }))
+    CLIENT_OPTIONS_ORDER.map(client => ({ client, status: 'initial', rowCount: 0 })) // Initialize with 'initial' status
   );
   const [isFetching, setIsFetching] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -30,20 +32,25 @@ export function DataIngestionClient() {
 
   const handleFetchData = async () => {
     setIsFetching(true);
-    setMergedData([]); 
-    setSourceStatuses(CLIENT_OPTIONS_ORDER.map(client => ({ client, status: 'pending', rowCount: 0 })));
+    setMergedData([]);
+    // Set status to 'pending' for all clients when fetching starts
+    setSourceStatuses(CLIENT_OPTIONS_ORDER.map(client => ({ client, status: 'pending', rowCount: 0, message: 'Fetching...' })));
     
     try {
       const result = await fetchAllSheetsDataAction();
       setMergedData(result.allMergedData);
       
-      // Update sourceStatuses based on result.clientResults
       const updatedStatuses = CLIENT_OPTIONS_ORDER.map(clientName => {
         const clientResult = result.clientResults.find(cr => cr.client === clientName);
         if (clientResult) {
-          return clientResult as SourceStatus; // Cast because server result won't have 'pending'
+          // Ensure all properties of SourceStatus are present
+          return {
+            client: clientResult.client,
+            status: clientResult.status,
+            rowCount: clientResult.rowCount,
+            message: clientResult.message
+          } as SourceStatus;
         }
-        // Should not happen if server returns all attempted clients
         return { client: clientName, status: 'error', message: 'Status not reported by server.', rowCount: 0 } as SourceStatus;
       });
       setSourceStatuses(updatedStatuses);
@@ -89,7 +96,6 @@ export function DataIngestionClient() {
 
   const handleUploadData = async () => {
     if (mergedData.length === 0 && !sourceStatuses.some(s => s.status === 'success' && s.rowCount > 0)) {
-        // Check if there was any successful data even if mergedData is empty due to filtering later
       toast({
         title: 'No Data to Upload',
         description: 'Fetch data first or ensure some sources fetched data successfully.',
@@ -99,7 +105,7 @@ export function DataIngestionClient() {
     }
     setIsUploading(true);
     try {
-      const result = await saveDemandDataAction(mergedData);
+      const result = await saveDemandDataAction(mergedData); // Using imported action
       if (result.success) {
         toast({
           title: 'Upload Successful',
@@ -126,7 +132,8 @@ export function DataIngestionClient() {
   
   const getStatusIcon = (status: SourceStatus['status']) => {
     switch (status) {
-      case 'pending': return <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
+      case 'initial': return <Info className="h-4 w-4 text-muted-foreground" />;
+      case 'pending': return <Loader2 className="h-4 w-4 animate-spin text-primary" />; // Changed color for pending
       case 'success': return <CheckCircle className="h-4 w-4 text-green-500" />;
       case 'error': return <XCircle className="h-4 w-4 text-red-500" />;
       case 'empty': return <FileQuestion className="h-4 w-4 text-yellow-500" />;
@@ -173,10 +180,11 @@ export function DataIngestionClient() {
                   {getStatusIcon(source.status)}
                   <span className="font-medium">{source.client}</span>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  {source.status === 'pending' && 'Fetching...'}
+                <div className="text-xs text-muted-foreground truncate" title={source.message}>
+                  {source.status === 'initial' && 'Ready'}
+                  {source.status === 'pending' && (source.message || 'Fetching...')}
                   {source.status === 'success' && `Success (${source.rowCount} rows)`}
-                  {source.status === 'empty' && (source.message || 'No data')}
+                  {source.status === 'empty' && (source.message || 'No data found')}
                   {source.status === 'error' && (source.message || 'Failed')}
                 </div>
               </li>
@@ -188,7 +196,7 @@ export function DataIngestionClient() {
         {isFetching && sourceStatuses.every(s => s.status === 'pending') && (
           <div className="flex justify-center items-center py-10">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p className="ml-2 text-muted-foreground">Initializing data fetch...</p>
+            <p className="ml-2 text-muted-foreground">Initializing data fetch from all sources...</p>
           </div>
         )}
 
@@ -218,7 +226,7 @@ export function DataIngestionClient() {
             </Table>
           </div>
         )}
-        {mergedData.length === 0 && !isFetching && sourceStatuses.some(s => s.status !== 'pending') && (
+        {mergedData.length === 0 && !isFetching && sourceStatuses.some(s => s.status !== 'pending' && s.status !== 'initial') && (
            <div className="text-center py-10 text-muted-foreground">
              <p>
                 {sourceStatuses.every(s => s.status === 'error') 
@@ -230,10 +238,18 @@ export function DataIngestionClient() {
              </p>
            </div>
         )}
+         {mergedData.length === 0 && !isFetching && sourceStatuses.every(s => s.status === 'initial') && (
+          <p className="text-center text-muted-foreground py-4">
+            Click "Fetch Now" to load data.
+          </p>
+        )}
       </CardContent>
       <CardFooter>
         <p className="text-xs text-muted-foreground">
-          {mergedData.length > 0 ? `${mergedData.length} records loaded for preview.` : !isFetching ? "Data preview will appear here after fetching." : "Fetching data..."}
+          {mergedData.length > 0 ? `${mergedData.length} records loaded for preview.` : 
+           !isFetching && sourceStatuses.every(s => s.status === 'initial') ? "Ready to fetch data." :
+           !isFetching ? "Data preview will appear here after fetching." : 
+           "Fetching data..."}
         </p>
       </CardFooter>
     </Card>
