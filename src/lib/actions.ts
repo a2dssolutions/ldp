@@ -21,9 +21,9 @@ import { getAppSettings as serviceGetAppSettings, saveAppSettings as serviceSave
 import type { MergedSheetData, DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity } from '@/lib/types';
 
 
-export async function fetchAllSheetsDataAction(): Promise<FetchAllSheetsDataActionResult> {
+export async function fetchAllSheetsDataAction(clientsToFetch?: ClientName[]): Promise<FetchAllSheetsDataActionResult> {
   const appSettings = await serviceGetAppSettings();
-  return serviceFetchAllSheets(appSettings.sheetUrls);
+  return serviceFetchAllSheets(appSettings.sheetUrls, clientsToFetch);
 }
 
 export async function saveDemandDataAction(data: MergedSheetData[]): Promise<{ success: boolean; message: string }> {
@@ -67,38 +67,47 @@ export async function triggerManualSyncAction(): Promise<{ success: boolean; mes
   const appSettings = await serviceGetAppSettings();
 
   try {
+    // Step 1: Clear existing data from Firestore.
+    // Note: This will clear ALL data. If selective client sync is intended to only *update* 
+    // those clients without affecting others, this clearing step might need to be more nuanced
+    // or skipped if the save operation correctly overwrites.
+    // For now, a full clear followed by a save of (potentially all) clients is the flow.
     const clearResult = await clearAllDemandDataFromStore();
     if (!clearResult.success) {
-      console.error("Failed to clear existing data from Firestore:", clearResult.message);
+      // Decide if we should stop if clearing fails. For now, we'll log and continue.
+      console.error("Failed to clear existing data from Firestore during manual sync:", clearResult.message);
     } else {
-      console.log(clearResult.message);
+      console.log("Successfully cleared existing data from Firestore.");
     }
 
-    console.log("Fetching live data from Google Sheets using configured URLs...");
-    const { allMergedData: liveData, clientResults } = await serviceFetchAllSheets(appSettings.sheetUrls);
+    // Step 2: Fetch live data from Google Sheets (for ALL clients, as per current manual sync design)
+    console.log("Fetching live data from all configured Google Sheets...");
+    const { allMergedData: liveData, clientResults } = await serviceFetchAllSheets(appSettings.sheetUrls); // Fetch all for manual sync
     
     const successfulFetches = clientResults.filter(r => r.status === 'success' || r.status === 'empty').length;
     const errorFetches = clientResults.filter(r => r.status === 'error').length;
     let fetchSummary = `Fetched ${liveData.length} total records. ${successfulFetches} sources processed, ${errorFetches} sources failed.`;
     
     clientResults.forEach(res => {
-        console.log(`Client: ${res.client}, Status: ${res.status}, Rows: ${res.rowCount}, Message: ${res.message || ''}`);
+        console.log(`Manual Sync - Client: ${res.client}, Status: ${res.status}, Rows: ${res.rowCount}, Message: ${res.message || ''}`);
     });
 
     if (liveData.length === 0 && errorFetches === 0) {
       fetchSummary += " No data was found in any successfully processed source.";
-      console.warn(fetchSummary);
+      console.warn("Manual Sync:", fetchSummary);
     } else if (liveData.length === 0 && errorFetches > 0) {
-      fetchSummary += " No data was retrieved due to errors in all sources or empty sources.";
-      console.error(fetchSummary);
+      fetchSummary += " No data was retrieved due to errors or empty sources.";
+      console.error("Manual Sync:", fetchSummary);
     } else {
-      console.log(fetchSummary);
+      console.log("Manual Sync:", fetchSummary);
     }
 
+    // If no data fetched at all, report based on errors.
     if (!liveData || liveData.length === 0) {
       return { success: errorFetches === 0, message: fetchSummary };
     }
     
+    // Step 3: Save fetched live data to Firestore
     console.log("Saving fetched live data to Firestore...");
     const saveResult = await saveDemandDataToStore(liveData);
     if (saveResult.success) {

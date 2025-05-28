@@ -4,7 +4,6 @@
 import type { RawSheetData, MergedSheetData, ClientName } from '@/lib/types';
 
 interface ClientSheetConfig {
-  // url: string; // URL will now come from AppSettings
   idField: string | ((row: Record<string, string>, index: number, client: ClientName) => string);
   cityField: string;
   areaField: string;
@@ -20,21 +19,21 @@ export interface ClientFetchResult {
 }
 
 export interface FetchAllSheetsDataActionResult {
-  allMergedData: MergedSheetData[];
-  clientResults: ClientFetchResult[];
+  allMergedData: MergedSheetData[]; // Contains data only for successfully fetched clients
+  clientResults: ClientFetchResult[]; // Contains status for ALL clients attempted
 }
 
-// Client-specific parsing configurations, URLs will be passed in
-const clientParsingConfigs: Record<ClientName, Omit<ClientSheetConfig, 'url'>> = {
+// Client-specific parsing configurations
+const clientConfigs: Record<ClientName, Omit<ClientSheetConfig, 'url'>> = {
   Blinkit: {
     idField: (row, index, client) => row['Store id']?.trim() || `${client.toLowerCase()}-${index}-${Date.now()}`,
     cityField: 'City',
     areaField: 'Area',
     demandScoreField: 'Daily demand',
-    rowFilter: (row) => {
+     rowFilter: (row) => {
       return !!row['Store id']?.trim() &&
              !!row['City']?.trim() &&
-             row['Daily demand'] !== undefined && 
+             row['Daily demand'] !== undefined && row['Daily demand']?.trim() !== '' &&
              !!row['Area']?.trim();
     },
   },
@@ -43,19 +42,19 @@ const clientParsingConfigs: Record<ClientName, Omit<ClientSheetConfig, 'url'>> =
     cityField: 'City Name',
     areaField: 'Area',
     demandScoreField: 'Food',
-    rowFilter: (row, headers) => !!row[headers[0]] && row[headers[0]] !== headers[0],
+    rowFilter: (row, headers) => !!row[headers[0]] && row[headers[0]] !== headers[0] && !!row['City Name']?.trim() && !!row['Area']?.trim() && row['Food'] !== undefined,
   },
   SwiggyIM: {
     idField: (row, index, client) => `${client.toLowerCase()}-${row['City Name']?.trim()}-${row['Area']?.trim()}-${index}`.replace(/\s+/g, '_') || `${client.toLowerCase()}-gen-${index}-${Date.now()}`,
     cityField: 'City Name',
     areaField: 'Area',
     demandScoreField: 'Instamart',
-    rowFilter: (row, headers) => !!row[headers[0]] && row[headers[0]] !== headers[0],
+    rowFilter: (row, headers) => !!row[headers[0]] && row[headers[0]] !== headers[0] && !!row['City Name']?.trim() && !!row['Area']?.trim() && row['Instamart'] !== undefined,
   },
   Zepto: {
     idField: (row, index, client) => row['Store']?.trim() || `${client.toLowerCase()}-${index}-${Date.now()}`,
     cityField: 'City',
-    areaField: 'Store',
+    areaField: 'Store', // Using 'Store' as area for Zepto as per sample
     demandScoreField: (row) => {
       const morningFT = parseInt(row['Morning_FT Demand'], 10) || 0;
       const morningPT = parseInt(row['Morning_PT Demand'], 10) || 0;
@@ -93,7 +92,8 @@ function parseCSV(csvText: string): { headers: string[], data: Record<string, st
     .map(line => {
       if (line.trim() === '') return null; 
       const values = parseLine(line);
-      if (values.length === 0 && line.length > 0) { 
+      if (values.length === 0 && line.length > 0 && values.length < headers.length) { 
+        console.warn(`Skipping malformed CSV line (fewer values than headers): "${line.substring(0,100)}"`);
         return null;
       }
       const rowObject: Record<string, string> = {};
@@ -109,7 +109,7 @@ function parseCSV(csvText: string): { headers: string[], data: Record<string, st
 
 async function fetchSheetDataForClient(client: ClientName, sheetUrl: string): Promise<{ data: MergedSheetData[], result: ClientFetchResult }> {
   console.log(`Fetching sheet data for ${client} from URL: ${sheetUrl}`);
-  const config = clientParsingConfigs[client];
+  const config = clientConfigs[client];
   if (!config) {
     const errorMsg = `No parsing configuration found for client: ${client}`;
     console.error(errorMsg);
@@ -127,7 +127,7 @@ async function fetchSheetDataForClient(client: ClientName, sheetUrl: string): Pr
       const errorBody = await response.text();
       const errorMsg = `Failed to fetch sheet for ${client} from ${sheetUrl}: ${response.status} ${response.statusText}. Body: ${errorBody.substring(0,500)}`;
       console.error(errorMsg);
-      return { data: [], result: { client, status: 'error', message: `HTTP error ${response.status}: ${response.statusText}`, rowCount: 0 }};
+      return { data: [], result: { client, status: 'error', message: `HTTP error ${response.status}`, rowCount: 0 }};
     }
     const csvText = await response.text();
     if (!csvText || csvText.trim() === '') {
@@ -138,11 +138,18 @@ async function fetchSheetDataForClient(client: ClientName, sheetUrl: string): Pr
     
     const { headers: parsedHeaders, data: parsedRows } = parseCSV(csvText);
 
+    if (parsedHeaders.length === 0 && parsedRows.length === 0 && csvText.trim().split(/\r?\n/).length <=1) {
+         const msg = `Fetched CSV for ${client} appears to be completely empty or just a header.`;
+        console.warn(msg + ` URL: ${sheetUrl}`);
+        return { data: [], result: { client, status: 'empty', message: msg, rowCount: 0 }};
+    }
+    
+    // Header validation
     const requiredStringHeaders: string[] = [];
-    if (typeof config.idField === 'string') requiredStringHeaders.push(config.idField);
-    requiredStringHeaders.push(config.cityField);
-    requiredStringHeaders.push(config.areaField);
+    if (typeof config.cityField === 'string') requiredStringHeaders.push(config.cityField);
+    if (typeof config.areaField === 'string') requiredStringHeaders.push(config.areaField);
     if (typeof config.demandScoreField === 'string') requiredStringHeaders.push(config.demandScoreField);
+    // ID field is trickier as it can be a function
 
     for (const headerName of requiredStringHeaders) {
         if (!parsedHeaders.includes(headerName)) {
@@ -197,10 +204,10 @@ async function fetchSheetDataForClient(client: ClientName, sheetUrl: string): Pr
     }).filter(item => item !== null) as MergedSheetData[]; 
 
     if (clientData.length === 0 && filteredRows.length > 0) {
-      return { data: [], result: { client, status: 'empty', message: 'All valid rows were filtered out (e.g., missing city/area or failed specific filter).', rowCount: 0}};
+      return { data: [], result: { client, status: 'empty', message: 'Valid rows filtered out (e.g., missing city/area).', rowCount: 0}};
     }
-    if (clientData.length === 0 && filteredRows.length === 0) { 
-      return { data: [], result: { client, status: 'empty', message: 'No data rows found after initial parsing and filtering.', rowCount: 0}};
+    if (clientData.length === 0 && filteredRows.length === 0 && parsedRows.length === 0) { 
+      return { data: [], result: { client, status: 'empty', message: 'No data rows found after initial parsing.', rowCount: 0}};
     }
 
     return { data: clientData, result: { client, status: 'success', rowCount: clientData.length }};
@@ -208,18 +215,25 @@ async function fetchSheetDataForClient(client: ClientName, sheetUrl: string): Pr
   } catch (error) {
     const errorMsg = `Error processing sheet for client ${client}: ${error instanceof Error ? error.message : 'An unknown error occurred'}`;
     console.error(errorMsg, error); 
-    return { data: [], result: { client, status: 'error', message: errorMsg, rowCount: 0 }};
+    return { data: [], result: { client, status: 'error', message: errorMsg.substring(0, 200), rowCount: 0 }}; // Truncate long messages
   }
 }
 
-// Updated to accept sheetUrls from AppSettings
-export async function fetchAllSheetsData(sheetUrls: Record<ClientName, string>): Promise<FetchAllSheetsDataActionResult> {
-  const clients: ClientName[] = ['Zepto', 'Blinkit', 'SwiggyFood', 'SwiggyIM']; 
+
+export async function fetchAllSheetsData(
+    sheetUrlsByName: Record<ClientName, string>, 
+    clientsToFetch?: ClientName[]
+): Promise<FetchAllSheetsDataActionResult> {
+  
+  const clientsToProcess = clientsToFetch && clientsToFetch.length > 0 
+    ? clientsToFetch 
+    : Object.keys(sheetUrlsByName) as ClientName[];
+
   let allMergedData: MergedSheetData[] = [];
   const clientResults: ClientFetchResult[] = [];
 
-  for (const client of clients) {
-    const urlForClient = sheetUrls[client]; // Get URL from the passed settings
+  for (const client of clientsToProcess) {
+    const urlForClient = sheetUrlsByName[client]; 
     if (!urlForClient) {
       console.warn(`URL not found for client ${client} in app settings. Skipping.`);
       clientResults.push({ client, status: 'error', message: `URL not configured for ${client}.`, rowCount: 0 });
@@ -232,15 +246,9 @@ export async function fetchAllSheetsData(sheetUrls: Record<ClientName, string>):
     }
   }
   
-  console.log(`Total records fetched and merged from all sheets: ${allMergedData.length}.`);
+  console.log(`Total records fetched and merged from selected/all sheets: ${allMergedData.length}.`);
   clientResults.forEach(res => console.log(`Client: ${res.client}, Status: ${res.status}, Rows: ${res.rowCount}, Message: ${res.message || ''}`));
   return { allMergedData, clientResults };
 }
 
-// Simulating save, no change needed here
-export async function saveProcessedDemandData(data: MergedSheetData[]): Promise<{ success: boolean; message: string }> {
-  console.log('Simulating save of processed demand data to Firestore:', data.length, 'records');
-  await new Promise(resolve => setTimeout(resolve, 300)); 
-  return { success: true, message: `${data.length} records "saved" successfully.` };
-}
-
+    
