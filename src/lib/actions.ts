@@ -18,7 +18,7 @@ import {
 import { getAppSettings as serviceGetAppSettings, saveAppSettings as serviceSaveAppSettings, type AppSettings } from '@/lib/services/config-service';
 
 
-import type { MergedSheetData, DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity, PostingSuggestions, CityWithSingleClient } from '@/lib/types';
+import type { MergedSheetData, DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity } from '@/lib/types'; // Removed PostingSuggestions, CityWithSingleClient
 import { format } from 'date-fns';
 
 
@@ -31,12 +31,15 @@ export async function saveDemandDataAction(data: MergedSheetData[]): Promise<{ s
   return saveDemandDataToStore(data);
 }
 
-export async function getDemandDataAction(filters?: {
-  client?: ClientName;
-  date?: string;
-  city?: string;
-}): Promise<DemandData[]> {
-  return serviceGetDemand(filters);
+export async function getDemandDataAction(
+  filters?: {
+    client?: ClientName;
+    date?: string;
+    city?: string;
+  },
+  options?: { bypassLimits?: boolean }
+): Promise<DemandData[]> {
+  return serviceGetDemand(filters, options);
 }
 
 export async function getHistoricalDemandDataAction(
@@ -68,18 +71,15 @@ export async function triggerManualSyncAction(): Promise<{ success: boolean; mes
   const appSettings = await serviceGetAppSettings();
 
   try {
-    // Step 1: Clear existing data from Firestore.
     const clearResult = await clearAllDemandDataFromStore();
     if (!clearResult.success) {
       console.error("Failed to clear existing data from Firestore during manual sync:", clearResult.message);
-      // Optionally, return or throw based on severity. For now, logging and continuing.
     } else {
       console.log("Successfully cleared existing data from Firestore.");
     }
 
-    // Step 2: Fetch live data from Google Sheets (for ALL clients, as per current manual sync design)
     console.log("Fetching live data from all configured Google Sheets...");
-    const { allMergedData: liveData, clientResults } = await serviceFetchAllSheets(appSettings.sheetUrls); // Fetch all for manual sync
+    const { allMergedData: liveData, clientResults } = await fetchAllSheetsDataAction(); // Fetch all for manual sync
     
     const successfulFetches = clientResults.filter(r => r.status === 'success' || r.status === 'empty').length;
     const errorFetches = clientResults.filter(r => r.status === 'error').length;
@@ -99,12 +99,10 @@ export async function triggerManualSyncAction(): Promise<{ success: boolean; mes
       console.log("Manual Sync:", fetchSummary);
     }
 
-    // If no data fetched at all, report based on errors.
     if (!liveData || liveData.length === 0) {
       return { success: errorFetches === 0, message: fetchSummary };
     }
     
-    // Step 3: Save fetched live data to Firestore
     console.log("Saving fetched live data to Firestore...");
     const saveResult = await saveDemandDataToStore(liveData);
     if (saveResult.success) {
@@ -127,50 +125,4 @@ export async function saveAppSettingsAction(settings: Partial<AppSettings>): Pro
   return serviceSaveAppSettings(settings);
 }
 
-export async function getPostingSuggestionsAction(
-  date: string, // YYYY-MM-DD
-  userSelectedClients: ClientName[]
-): Promise<PostingSuggestions> {
-  try {
-    const allDemandDataForDate = await serviceGetDemand({ date });
-
-    if (!allDemandDataForDate || allDemandDataForDate.length === 0) {
-      return { commonCities: [], singleClientCities: [] };
-    }
-
-    const cityToActualClientsMap = new Map<string, Set<ClientName>>();
-
-    allDemandDataForDate.forEach(item => {
-      if (!cityToActualClientsMap.has(item.city)) {
-        cityToActualClientsMap.set(item.city, new Set<ClientName>());
-      }
-      cityToActualClientsMap.get(item.city)!.add(item.client);
-    });
-
-    const commonCitiesResult: string[] = [];
-    const singleClientCitiesResult: CityWithSingleClient[] = [];
-
-    for (const [city, actualClientsInCitySet] of cityToActualClientsMap.entries()) {
-      const participatingSelectedClients = userSelectedClients.filter(sc => actualClientsInCitySet.has(sc));
-
-      if (participatingSelectedClients.length >= 2) {
-        commonCitiesResult.push(city);
-      } else if (participatingSelectedClients.length === 1) {
-        singleClientCitiesResult.push({ city, client: participatingSelectedClients[0] });
-      }
-    }
-    
-    // Sort for consistent output
-    commonCitiesResult.sort();
-    singleClientCitiesResult.sort((a,b) => a.city.localeCompare(b.city) || a.client.localeCompare(b.client));
-
-
-    return {
-      commonCities: [...new Set(commonCitiesResult)], // Ensure uniqueness, though logic should handle it
-      singleClientCities: singleClientCitiesResult,
-    };
-  } catch (error) {
-    console.error('Error in getPostingSuggestionsAction:', error);
-    throw new Error(`Failed to generate posting suggestions: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
+// Removed getPostingSuggestionsAction

@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { BarChartBig, LayoutDashboard, DatabaseZap, History as HistoryIcon, ShieldCheck, Settings, UserCircle, Menu, Lightbulb } from 'lucide-react';
+import { BarChartBig, LayoutDashboard, DatabaseZap, History as HistoryIcon, ShieldCheck, Settings, UserCircle, Menu } from 'lucide-react';
 import {
   SidebarProvider,
   Sidebar,
@@ -25,7 +25,7 @@ import { cn } from '@/lib/utils';
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/ingestion', label: 'Data Ingestion', icon: DatabaseZap },
-  { href: '/posting-suggestions', label: 'Posting Suggestions', icon: Lightbulb },
+  // { href: '/posting-suggestions', label: 'Posting Suggestions', icon: Lightbulb }, // Removed
   { href: '/history', label: 'Demand History', icon: HistoryIcon },
   { href: '/admin', label: 'Admin Panel', icon: ShieldCheck },
 ];

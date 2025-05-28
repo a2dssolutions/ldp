@@ -130,17 +130,23 @@ export async function clearAllDemandDataFromStore(): Promise<{ success: boolean;
   }
 }
 
-const MAX_PARENT_DOCS_FOR_BROAD_QUERY = 300; // Increased from 75
+// Limits for standard dashboard queries
+const MAX_PARENT_DOCS_FOR_BROAD_QUERY = 300; 
 const MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY = 250;
 const MAX_RESULTS_TO_CLIENT = 500;      
+
+// Higher limits for analysis queries (when bypassLimits is true)
+const MAX_PARENT_DOCS_FOR_BROAD_ANALYSIS_QUERY = 750; // Reduced from 1500
+const MAX_DAILY_FETCHES_FOR_SPECIFIC_ANALYSIS_QUERY = 750; // Reduced from 1500
+
 
 export async function getDemandData(filters?: {
   client?: ClientName;
   date?: string; 
   city?: string;
-}): Promise<DemandData[]> {
+}, options?: { bypassLimits?: boolean }): Promise<DemandData[]> {
   const targetDate = filters?.date || format(new Date(), 'yyyy-MM-dd');
-  console.log(`Reading from Firestore (new structure) for date: ${targetDate}, filters:`, filters);
+  console.log(`Reading from Firestore (new structure) for date: ${targetDate}, filters:`, filters, "options:", options);
   
   const parentCollectionRef = collection(db, 'demandRecords');
   const qConstraints: QueryConstraint[] = [];
@@ -152,13 +158,18 @@ export async function getDemandData(filters?: {
   if (isSpecificClientQuery) {
     qConstraints.push(where('client', '==', filters.client));
   }
-  if (isSpecificCityQuery) {
+  if (isSpecificCityQuery && filters.city && filters.city.trim() !== '') { // Ensure city is not empty
      qConstraints.push(where('city', '==', filters.city.trim()));
   }
   
   if (isBroadQuery) {
-    console.warn(`[getDemandData] Broad query. Applying limit of ${MAX_PARENT_DOCS_FOR_BROAD_QUERY} parent documents to initial Firestore query.`);
-    qConstraints.push(limit(MAX_PARENT_DOCS_FOR_BROAD_QUERY));
+    if (options?.bypassLimits) {
+      console.warn(`[getDemandData] Broad query with bypassLimits. Applying analysis limit of ${MAX_PARENT_DOCS_FOR_BROAD_ANALYSIS_QUERY} parent documents.`);
+      qConstraints.push(limit(MAX_PARENT_DOCS_FOR_BROAD_ANALYSIS_QUERY));
+    } else {
+      console.warn(`[getDemandData] Broad query. Applying default limit of ${MAX_PARENT_DOCS_FOR_BROAD_QUERY} parent documents.`);
+      qConstraints.push(limit(MAX_PARENT_DOCS_FOR_BROAD_QUERY));
+    }
   }
   
   const finalParentQuery = query(parentCollectionRef, ...qConstraints);
@@ -173,13 +184,16 @@ export async function getDemandData(filters?: {
 
     let docsToProcess = parentDocsSnapshot.docs;
 
-    // This secondary limit is for how many daily records we try to fetch,
-    // after we've already potentially limited the parentDocsSnapshot by MAX_PARENT_DOCS_FOR_BROAD_QUERY.
-    if (!isBroadQuery && docsToProcess.length > MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY) {
-      console.warn(`[getDemandData] Specific query matched ${docsToProcess.length} parent docs. Limiting processing loop for daily data to ${MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY}.`);
-      docsToProcess = docsToProcess.slice(0, MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY);
+    if (!isBroadQuery) { 
+      const processingLimit = options?.bypassLimits 
+        ? MAX_DAILY_FETCHES_FOR_SPECIFIC_ANALYSIS_QUERY 
+        : MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY;
+      
+      if (docsToProcess.length > processingLimit) {
+        console.warn(`[getDemandData] Specific query (bypassLimits: ${!!options?.bypassLimits}) matched ${docsToProcess.length} parent docs. Limiting processing loop for daily data to ${processingLimit}.`);
+        docsToProcess = docsToProcess.slice(0, processingLimit);
+      }
     }
-
 
     for (const parentDoc of docsToProcess) {
       const parentData = parentDoc.data() as { client: ClientName; city: string; area: string };
@@ -189,7 +203,7 @@ export async function getDemandData(filters?: {
       if (dailyDocSnapshot.exists()) {
         const dailyData = dailyDocSnapshot.data() as { demandScore: number; timestamp: string; sourceSystemId: string };
         demandEntries.push({
-          id: dailyData.sourceSystemId,
+          id: dailyData.sourceSystemId || parentDoc.id + '_' + targetDate, 
           client: parentData.client,
           city: parentData.city,
           area: parentData.area,
@@ -203,7 +217,8 @@ export async function getDemandData(filters?: {
     demandEntries.sort((a, b) => b.demandScore - a.demandScore);
 
     console.log(`Fetched ${demandEntries.length} raw records from Firestore for getDemandData (new structure).`);
-    if (demandEntries.length > MAX_RESULTS_TO_CLIENT) {
+    
+    if (!options?.bypassLimits && demandEntries.length > MAX_RESULTS_TO_CLIENT) {
         console.warn(`[getDemandData] Slicing final results from ${demandEntries.length} to ${MAX_RESULTS_TO_CLIENT}.`);
         return demandEntries.slice(0, MAX_RESULTS_TO_CLIENT);
     }
@@ -237,14 +252,17 @@ export async function getHistoricalDemandData(
   if (isSpecificClientQuery) {
     parentQueryConstraints.push(where('client', '==', filters.client));
   }
-  if (isSpecificCityQuery) {
+  if (isSpecificCityQuery && filters.city && filters.city.trim() !== '') { // Ensure city is not empty
      parentQueryConstraints.push(where('city', '==', filters.city.trim()));
   }
 
-  // Apply a limit to the parent query if it's broad or too many specific matches
-  if (parentQueryConstraints.length === 0 || parentDocsSnapshot.docs.length > MAX_INDIVIDUAL_HISTORICAL_FETCHES) {
+  
+  const finalParentQueryWithoutLimit = query(parentCollectionRef, ...parentQueryConstraints);
+  const parentDocsSnapshotForCount = await getDocs(finalParentQueryWithoutLimit);
+
+  if (parentDocsSnapshotForCount.docs.length > MAX_INDIVIDUAL_HISTORICAL_FETCHES) {
       parentQueryConstraints.push(limit(MAX_INDIVIDUAL_HISTORICAL_FETCHES));
-      console.warn(`[getHistoricalDemandData] Applied limit of ${MAX_INDIVIDUAL_HISTORICAL_FETCHES} to parent document query.`);
+      console.warn(`[getHistoricalDemandData] Applied limit of ${MAX_INDIVIDUAL_HISTORICAL_FETCHES} to parent document query. Original matches: ${parentDocsSnapshotForCount.docs.length}`);
   }
 
 
@@ -259,12 +277,7 @@ export async function getHistoricalDemandData(
     }
 
     let docsToProcess = parentDocsSnapshot.docs;
-    // This secondary limit is already handled by the limit in the query itself.
-    // if (docsToProcess.length > MAX_INDIVIDUAL_HISTORICAL_FETCHES) {
-    //     console.warn(`[getHistoricalDemandData] Query returned ${docsToProcess.length} parent docs. Limiting processing loop to ${MAX_INDIVIDUAL_HISTORICAL_FETCHES}.`);
-    //     docsToProcess = docsToProcess.slice(0, MAX_INDIVIDUAL_HISTORICAL_FETCHES);
-    // }
-
+    
     for (const parentDoc of docsToProcess) {
       const parentData = parentDoc.data() as { client: ClientName; city: string; area: string };
       const dailyCollectionRef = collection(db, 'demandRecords', parentDoc.id, 'daily');
@@ -274,14 +287,13 @@ export async function getHistoricalDemandData(
         where(documentId(), '>=', dateRange.start), 
         where(documentId(), '<=', dateRange.end),
         orderBy(documentId(), 'asc')
-        // Potentially add limit here if daily subcollections can be huge, e.g., limit(365) for a year
       );
       
       const dailyDocsSnapshot = await getDocs(dailyQuery);
       dailyDocsSnapshot.forEach((dailyDoc) => {
         const dailyData = dailyDoc.data() as { demandScore: number; timestamp: string; sourceSystemId: string };
         historicalEntries.push({
-          id: dailyData.sourceSystemId,
+          id: dailyData.sourceSystemId || parentDoc.id + '_' + dailyDoc.id, 
           client: parentData.client,
           city: parentData.city,
           area: parentData.area,
@@ -335,11 +347,11 @@ export async function getClientDemandSummary(filters?: { client?: ClientName; da
 }
 
 export async function getAreaDemandSummary(filters?: { client?: ClientName; date?: string; city?: string }): Promise<AreaDemand[]> {
-  const data = await getDemandData(filters); // Leverages existing filtering and date logic
+  const data = await getDemandData(filters); 
   const areaMap: Record<string, { city: string; totalDemand: number; clients: Set<ClientName> }> = {};
 
   data.forEach(item => {
-    const key = `${item.city}-${item.area}`; // Unique key for area within a city
+    const key = `${item.city}-${item.area}`; 
     if (!areaMap[key]) {
       areaMap[key] = { city: item.city, totalDemand: 0, clients: new Set() };
     }
@@ -349,7 +361,7 @@ export async function getAreaDemandSummary(filters?: { client?: ClientName; date
 
   return Object.entries(areaMap)
     .map(([key, value]) => ({
-      area: key.split('-').slice(1).join('-'), // Extract area name back
+      area: key.split('-').slice(1).join('-'), 
       city: value.city,
       totalDemand: value.totalDemand,
       clients: Array.from(value.clients),
@@ -362,8 +374,7 @@ export async function getMultiClientHotspots(
   minDemandPerClient: number = 5,
   filters?: { date?: string }
 ): Promise<MultiClientHotspotCity[]> {
-  // Fetch data for all clients for the given date (defaults to today)
-  const allDemandData = await getDemandData({ date: filters?.date }); 
+  const allDemandData = await getDemandData({ date: filters?.date }, { bypassLimits: true }); 
 
   const cityClientDemand: Record<string, Record<ClientName, number>> = {};
 
@@ -399,6 +410,3 @@ export async function getMultiClientHotspots(
 
   return hotspots.sort((a, b) => b.clientCount - a.clientCount || b.totalDemand - a.totalDemand);
 }
-
-
-    

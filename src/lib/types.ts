@@ -44,12 +44,4 @@ export interface MultiClientHotspotCity {
   clientCount: number;
 }
 
-export interface CityWithSingleClient {
-  city: string;
-  client: ClientName;
-}
-
-export interface PostingSuggestions {
-  commonCities: string[];
-  singleClientCities: CityWithSingleClient[];
-}
+// Removed CityWithSingleClient and PostingSuggestions types
