@@ -15,8 +15,6 @@ import {
   getAreaDemandSummary as serviceGetAreaDemand,
   getMultiClientHotspots as serviceGetMultiClientHotspots,
 } from '@/lib/services/demand-data-service';
-import { suggestAreasForJobPosting, type SuggestAreasForJobPostingInput } from '@/ai/flows/suggest-areas-for-job-posting';
-import { forecastDemand, type ForecastDemandInput, type ForecastDemandOutput } from '@/ai/flows/forecast-demand-flow';
 import { getAppSettings as serviceGetAppSettings, saveAppSettings as serviceSaveAppSettings, type AppSettings } from '@/lib/services/config-service';
 
 
@@ -25,8 +23,6 @@ import type { MergedSheetData, DemandData, ClientName, CityDemand, ClientDemand,
 
 export async function fetchAllSheetsDataAction(): Promise<FetchAllSheetsDataActionResult> {
   const appSettings = await serviceGetAppSettings();
-  // Pass appSettings.sheetUrls to serviceFetchAllSheets if it needs dynamic URLs
-  // For now, assuming serviceFetchAllSheets reads its own config or uses a fixed one
   return serviceFetchAllSheets(appSettings.sheetUrls);
 }
 
@@ -47,16 +43,6 @@ export async function getHistoricalDemandDataAction(
   filters?: { client?: ClientName; city?: string }
 ): Promise<DemandData[]> {
   return serviceGetHistorical(dateRange, filters);
-}
-
-export async function getAiAreaSuggestionsAction(input: SuggestAreasForJobPostingInput): Promise<string[]> {
-  try {
-    const result = await suggestAreasForJobPosting(input);
-    return result.areas;
-  } catch (error) {
-    console.error("Error fetching AI suggestions:", error);
-    return [`Error: Could not generate suggestions for ${input.city}. Please try again later.`];
-  }
 }
 
 export async function getCityDemandSummaryAction(filters?: { client?: ClientName; date?: string; city?: string }): Promise<CityDemand[]> {
@@ -126,20 +112,6 @@ export async function triggerManualSyncAction(): Promise<{ success: boolean; mes
   }
 }
 
-export async function getDemandForecastAction(input: ForecastDemandInput): Promise<ForecastDemandOutput> {
-  try {
-    const result = await forecastDemand(input);
-    return result;
-  } catch (error) {
-    console.error("Error fetching AI forecast:", error);
-    return {
-      forecastPeriod: "N/A",
-      predictedDemandTrend: "Error",
-      narrative: `Could not generate forecast: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
-}
-
 // Configuration Actions
 export async function getAppSettingsAction(): Promise<AppSettings> {
   return serviceGetAppSettings();
@@ -149,3 +121,4 @@ export async function saveAppSettingsAction(settings: Partial<AppSettings>): Pro
   return serviceSaveAppSettings(settings);
 }
 
+    

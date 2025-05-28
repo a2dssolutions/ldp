@@ -14,7 +14,6 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { getDemandDataAction, getAreaDemandSummaryAction, getMultiClientHotspotsAction, getCityDemandSummaryAction, getClientDemandSummaryAction } from '@/lib/actions';
 import type { DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity } from '@/lib/types';
 import { format } from 'date-fns';
-import { AiSuggestionsPlaceholder } from '@/components/features/ai-suggestions-placeholder';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Users, MapPin, TrendingUp, Zap } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -32,7 +31,7 @@ interface DemandDashboardClientProps {
   initialClientDemand: ClientDemand[];
   initialAreaDemand: AreaDemand[];
   initialMultiClientHotspots: MultiClientHotspotCity[];
-  initialSelectedDate: Date; // Added prop for consistent initial date
+  initialSelectedDate: Date; 
 }
 
 export function DemandDashboardClient({
@@ -41,7 +40,7 @@ export function DemandDashboardClient({
   initialClientDemand,
   initialAreaDemand,
   initialMultiClientHotspots,
-  initialSelectedDate, // Destructure the new prop
+  initialSelectedDate, 
 }: DemandDashboardClientProps) {
   const [demandData, setDemandData] = useState<DemandData[]>(initialDemandData);
   const [cityDemand, setCityDemand] = useState<CityDemand[]>(initialCityDemand);
@@ -50,7 +49,7 @@ export function DemandDashboardClient({
   const [multiClientHotspots, setMultiClientHotspots] = useState<MultiClientHotspotCity[]>(initialMultiClientHotspots);
   
   const [filters, setFilters] = useState<{ client?: ClientName; date?: Date; city?: string }>({
-    date: initialSelectedDate, // Initialize date filter with the prop
+    date: initialSelectedDate, 
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingExtras, setIsLoadingExtras] = useState(false); 
@@ -93,7 +92,7 @@ export function DemandDashboardClient({
     fetchExtraDataOnMountIfNeeded();
 
     return () => window.removeEventListener('resize', calculateRadius); 
-  }, []);
+  }, [filters.date, initialAreaDemand, initialMultiClientHotspots, toast]);
 
   const handleFilterChange = (name: string, value: string | Date | ClientName | undefined) => {
     setFilters(prev => ({ ...prev, [name]: value }));
@@ -105,7 +104,7 @@ export function DemandDashboardClient({
     setIsLoadingExtras(true); 
     try {
       const formattedDate = filters.date ? format(filters.date, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd');
-      const currentFilters = { ...filters, date: formattedDate };
+      const currentFilters = { ...filters, date: formattedDate, city: filters.city?.trim() || undefined };
       
       const [newFilteredData, newCityData, newClientData, newAreaData, newHotspotData] = await Promise.all([
         getDemandDataAction(currentFilters),
@@ -312,7 +311,15 @@ export function DemandDashboardClient({
                 )}
             </CardContent>
         </Card>
-        <AiSuggestionsPlaceholder />
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2"><MapPin className="text-primary" /> Additional Insights</CardTitle>
+                <CardDescription>Further analysis or utility functions can be placed here.</CardDescription>
+            </CardHeader>
+            <CardContent className="min-h-[200px] flex items-center justify-center">
+                <p className="text-sm text-muted-foreground">Placeholder for future content.</p>
+            </CardContent>
+        </Card>
       </div>
       
 
@@ -364,3 +371,5 @@ export function DemandDashboardClient({
     </div>
   );
 }
+
+    

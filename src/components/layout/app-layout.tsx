@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { BarChartBig, LayoutDashboard, DatabaseZap, Lightbulb, History as HistoryIcon, ShieldCheck, Settings, UserCircle, Menu, TrendingUp as TrendingUpIcon } from 'lucide-react';
+import { BarChartBig, LayoutDashboard, DatabaseZap, History as HistoryIcon, ShieldCheck, Settings, UserCircle, Menu } from 'lucide-react'; // Removed Lightbulb, TrendingUpIcon
 import {
   SidebarProvider,
   Sidebar,
@@ -25,9 +25,9 @@ import { cn } from '@/lib/utils';
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/ingestion', label: 'Data Ingestion', icon: DatabaseZap },
-  { href: '/suggestions', label: 'Area Suggestions', icon: Lightbulb },
+  // { href: '/suggestions', label: 'Area Suggestions', icon: Lightbulb }, // Removed
   { href: '/history', label: 'Demand History', icon: HistoryIcon },
-  { href: '/forecasting', label: 'Demand Forecasting', icon: TrendingUpIcon },
+  // { href: '/forecasting', label: 'Demand Forecasting', icon: TrendingUpIcon }, // Removed
   { href: '/admin', label: 'Admin Panel', icon: ShieldCheck },
 ];
 
@@ -92,7 +92,7 @@ function MobileSidebar() {
           <BarChartBig className="size-7 text-primary" />
           <h1 className="font-semibold text-lg">Demand Hub</h1>
         </SidebarHeader>
-        <nav className="grid gap-2 text-base font-medium p-4"> {/* Adjusted mobile nav text size */}
+        <nav className="grid gap-2 text-base font-medium p-4"> {}
           {navItems.map((item) => (
             <Link
               key={item.href}
@@ -166,3 +166,5 @@ export function AppLayout({ children }: { children: ReactNode }) {
     </SidebarProvider>
   );
 }
+
+    

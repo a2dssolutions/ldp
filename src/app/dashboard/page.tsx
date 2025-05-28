@@ -7,9 +7,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { format } from 'date-fns';
 
 async function DashboardDataWrapper() {
-  // Fetch all initial data concurrently
-  const serverRenderDate = new Date(); // Capture a single Date object for consistency
-  const todayString = format(serverRenderDate, 'yyyy-MM-dd'); // Format for API calls
+  const serverRenderDate = new Date(); 
+  const todayString = format(serverRenderDate, 'yyyy-MM-dd'); 
 
   const [
     initialDemandData,
@@ -32,7 +31,7 @@ async function DashboardDataWrapper() {
       initialClientDemand={clientDemandSummary}
       initialAreaDemand={areaDemandSummary}
       initialMultiClientHotspots={multiClientHotspots}
-      initialSelectedDate={serverRenderDate} // Pass the Date object
+      initialSelectedDate={serverRenderDate} 
     />
   );
 }
@@ -75,3 +74,5 @@ function DashboardSkeleton() {
     </div>
   );
 }
+
+    
