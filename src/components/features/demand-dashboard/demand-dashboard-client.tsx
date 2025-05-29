@@ -23,10 +23,19 @@ import type { DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, Mult
 import type { LocalDemandRecord } from '@/lib/dexie';
 import { format, parseISO, isToday, isValid, startOfDay } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
-import { Users, MapPin, TrendingUp, Zap, Info, Search } from 'lucide-react';
+import { Users, MapPin, TrendingUp, Zap, Info, Search, Eye } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useLiveQuery } from 'dexie-react-hooks';
 
 
@@ -92,17 +101,22 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
       let needsSync = false;
       let reason = "";
 
-      if (!dataPresentForSelectedDate) {
-        needsSync = true;
-        reason = `No local data found for ${selectedDateString}.`;
-      } else if (isToday(selectedDate) && (!lastSyncedDate || !isToday(lastSyncedDate))) {
-        // Data for today is present, but it wasn't synced today. It might be stale.
-        needsSync = true;
-        reason = `Local data for today (${selectedDateString}) might be outdated as it wasn't synced today.`;
+      if (isToday(selectedDate)) {
+        if (!dataPresentForSelectedDate) {
+            needsSync = true;
+            reason = `No local data found for today (${selectedDateString}).`;
+        }
+        // For today's date, we don't auto-sync if data is present, even if lastSyncedDate isn't today.
+        // Users should use Admin Panel to force a refresh of today's data if needed.
+      } else { // For past dates
+        if (!dataPresentForSelectedDate) {
+            needsSync = true;
+            reason = `No local data found for ${selectedDateString}.`;
+        }
       }
       
       if (needsSync) {
-        setSyncStatusMessage(`${reason} Please consider syncing via the Admin Panel for the latest records.`);
+        setSyncStatusMessage(`${reason} Please use the Admin Panel to sync data if needed.`);
       } else {
         setSyncStatusMessage(null);
       }
@@ -151,7 +165,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
     return isValid(selectedDate) ? selectedDate : new Date(initialSelectedDate);
   }, [selectedDate, initialSelectedDate]);
 
-  if (!isClientRendered || localDemandData === undefined) { // Show skeleton if not client rendered OR localDemandData is still undefined (initial Dexie load)
+  if (!isClientRendered || localDemandData === undefined) { 
     return <DashboardSkeleton />;
   }
 
@@ -249,12 +263,44 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
             </Card>
             
             <Card className="xl:col-span-1"> 
-              <CardHeader><CardTitle className="text-xl font-semibold flex items-center gap-2"><TrendingUp className="text-primary"/> Top Performing Areas</CardTitle><CardDescription className="text-sm text-muted-foreground">Highest demand areas (Top 5 from local data).</CardDescription></CardHeader>
-              <CardContent className="h-[300px] sm:h-[350px] overflow-y-auto">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <div className="space-y-1">
+                    <CardTitle className="text-xl font-semibold flex items-center gap-2"><TrendingUp className="text-primary"/> Top Performing Areas</CardTitle>
+                    <CardDescription className="text-sm text-muted-foreground">Highest demand areas (Top 5 from local data).</CardDescription>
+                </div>
+                {areaDemand.length > 5 && (
+                    <Dialog>
+                        <DialogTrigger asChild>
+                            <Button variant="outline" size="sm" className="ml-auto gap-1.5 text-sm">
+                                <Eye className="h-4 w-4" /> View All
+                            </Button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-[625px]">
+                            <DialogHeader>
+                                <DialogTitle>All Top Performing Areas</DialogTitle>
+                                <DialogDescription>
+                                    Full list of areas sorted by total demand for the selected date and filters.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <ScrollArea className="h-[400px] w-full rounded-md border p-4">
+                                <ul className="space-y-3">
+                                    {areaDemand.map((item, index) => (
+                                    <li key={`${item.city}-${item.area}-${index}`} className="flex justify-between items-center p-2 rounded-md bg-card border">
+                                        <div><p className="font-semibold text-sm">{item.area}</p><p className="text-xs text-muted-foreground">{item.city} - Clients: {item.clients.join(', ')}</p></div>
+                                        <Badge variant={getDemandTier(item.totalDemand).variant}>{item.totalDemand}</Badge>
+                                    </li>
+                                    ))}
+                                </ul>
+                            </ScrollArea>
+                        </DialogContent>
+                    </Dialog>
+                )}
+              </CardHeader>
+              <CardContent className="h-[280px] sm:h-[330px] overflow-y-auto">
                 {topAreaDemandForChart.length > 0 ? (
                   <ul className="space-y-3">
                     {topAreaDemandForChart.map((item, index) => (
-                      <li key={index} className="flex justify-between items-center p-2 rounded-md bg-card border">
+                      <li key={`${item.city}-${item.area}-${index}-top`} className="flex justify-between items-center p-2 rounded-md bg-card border">
                         <div><p className="font-semibold text-sm">{item.area}</p><p className="text-xs text-muted-foreground">{item.city} - Clients: {item.clients.join(', ')}</p></div>
                         <Badge variant={getDemandTier(item.totalDemand).variant}>{item.totalDemand}</Badge>
                       </li>
@@ -269,12 +315,45 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
 
           <div className="grid gap-6 md:grid-cols-2">
             <Card> 
-              <CardHeader><CardTitle className="text-xl font-semibold flex items-center gap-2"><Zap className="text-primary"/> Multi-Client Hotspot Cities</CardTitle><CardDescription className="text-sm text-muted-foreground">Cities with demand from multiple clients (Top 5 from local data).</CardDescription></CardHeader>
-              <CardContent className="min-h-[200px] overflow-y-auto">
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <div className="space-y-1">
+                        <CardTitle className="text-xl font-semibold flex items-center gap-2"><Zap className="text-primary"/> Multi-Client Hotspot Cities</CardTitle>
+                        <CardDescription className="text-sm text-muted-foreground">Cities with demand from multiple clients (Top 5 from local data).</CardDescription>
+                    </div>
+                     {multiClientHotspots.length > 5 && (
+                        <Dialog>
+                            <DialogTrigger asChild>
+                                <Button variant="outline" size="sm" className="ml-auto gap-1.5 text-sm">
+                                    <Eye className="h-4 w-4" /> View All
+                                </Button>
+                            </DialogTrigger>
+                            <DialogContent className="sm:max-w-[625px]">
+                                <DialogHeader>
+                                    <DialogTitle>All Multi-Client Hotspot Cities</DialogTitle>
+                                    <DialogDescription>
+                                        Full list of cities where multiple selected clients have demand.
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <ScrollArea className="h-[400px] w-full rounded-md border p-4">
+                                    <ul className="space-y-3">
+                                        {multiClientHotspots.map((hotspot) => (
+                                        <li key={`${hotspot.city}-all`} className="p-3 rounded-md bg-card border">
+                                            <div className="flex justify-between items-center"><p className="font-semibold text-base">{hotspot.city}</p><Badge variant="default">{hotspot.clientCount} Clients</Badge></div>
+                                            <p className="text-sm text-muted-foreground">Active: {hotspot.activeClients.join(', ')}</p>
+                                            <p className="text-xs text-muted-foreground">Total Demand Score: {hotspot.totalDemand}</p>
+                                        </li>
+                                        ))}
+                                    </ul>
+                                </ScrollArea>
+                            </DialogContent>
+                        </Dialog>
+                    )}
+                </CardHeader>
+              <CardContent className="min-h-[180px] overflow-y-auto"> 
                 {multiClientHotspots.length > 0 ? (
                   <ul className="space-y-3">
                     {multiClientHotspots.slice(0, 5).map((hotspot) => (
-                      <li key={hotspot.city} className="p-3 rounded-md bg-card border">
+                      <li key={`${hotspot.city}-top`} className="p-3 rounded-md bg-card border">
                         <div className="flex justify-between items-center"><p className="font-semibold text-base">{hotspot.city}</p><Badge variant="default">{hotspot.clientCount} Clients</Badge></div>
                         <p className="text-sm text-muted-foreground">Active: {hotspot.activeClients.join(', ')}</p>
                         <p className="text-xs text-muted-foreground">Total Demand Score: {hotspot.totalDemand}</p>
@@ -288,7 +367,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
             </Card>
             <Card>
               <CardHeader><CardTitle className="text-xl font-semibold flex items-center gap-2"><Info className="text-primary" /> Data Source</CardTitle><CardDescription className="text-sm text-muted-foreground">Details about the displayed data.</CardDescription></CardHeader>
-              <CardContent className="min-h-[200px] flex flex-col items-center justify-center space-y-2">
+              <CardContent className="min-h-[180px] flex flex-col items-center justify-center space-y-2">
                   <p className="text-sm text-muted-foreground">Displaying data for: <span className="font-semibold text-foreground">{isValid(selectedDate) ? format(selectedDate, 'PPP') : 'Loading date...'}</span></p>
                   <p className="text-sm text-muted-foreground">Total records in local cache for this date: <span className="font-semibold text-foreground">{localDemandData?.length || 0}</span></p>
                   <p className="text-sm text-muted-foreground">Last cloud sync for any date: {lastSyncedDate  && isValid(lastSyncedDate) ? <span className="font-semibold text-foreground">{format(lastSyncedDate, 'PPP p')}</span> : <span className="font-semibold text-foreground">Never</span>}</p>
@@ -315,7 +394,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                 </div>
               ) : (
                  <p className="text-center text-sm text-muted-foreground py-4">
-                  {(!localDemandData || localDemandData.length === 0) ? `No data found in local cache for ${selectedDateString}. Consider using Data Ingestion or Admin Panel sync.` : 
+                  {(!localDemandData || localDemandData.length === 0) ? `No data found in local cache for ${selectedDateString}. You can sync using the Admin Panel.` : 
                    'No data matches the current filters for the selected date.'}
                 </p>
               )}
@@ -347,4 +426,3 @@ function DashboardSkeleton() {
     </div>
   );
 }
-
