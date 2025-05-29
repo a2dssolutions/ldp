@@ -12,7 +12,6 @@ import {
   triggerManualSyncAction,
   syncLocalDemandDataForDateAction,
   saveAppSettingsAction,
-  getAppSettingsAction,
   testDataSourcesAction,
 } from '@/lib/actions';
 import {
@@ -22,8 +21,8 @@ import {
   getTotalLocalRecordsCount,
 } from '@/lib/services/demand-data-service';
 import type { AppSettings } from '@/lib/services/config-service';
-import type { LocalSyncMeta, DataSourceTestResult, ClientHealthStatus, HealthCheckStatus } from '@/lib/types';
-import { Loader2, RefreshCw, Database, FileText, CheckCircle, XCircle, Info, Trash2, DownloadCloud, PlusCircle, ListFilter, AlertTriangle, HardDrive, Activity } from 'lucide-react';
+import type { LocalSyncMeta, DataSourceTestResult, HealthCheckStatus } from '@/lib/types';
+import { Loader2, RefreshCw, Database, FileText, CheckCircle, XCircle, Info, Trash2, DownloadCloud, PlusCircle, ListFilter, AlertTriangle, HardDrive, Activity, Map, Pencil, Trash } from 'lucide-react';
 import { format, isValid } from 'date-fns';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Badge } from '@/components/ui/badge';
@@ -48,6 +47,9 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
   const [currentSettings, setCurrentSettings] = useState<AppSettings>(initialSettings);
   const [newBlacklistedCity, setNewBlacklistedCity] = useState('');
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+
+  const [newOriginalCityName, setNewOriginalCityName] = useState('');
+  const [newMappedCityName, setNewMappedCityName] = useState('');
 
   const [healthCheckResults, setHealthCheckResults] = useState<DataSourceTestResult | null>(null);
   const [isTestingSources, setIsTestingSources] = useState(false);
@@ -157,14 +159,15 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
       toast({ title: "Cannot add empty city", variant: "destructive" });
       return;
     }
-    if (currentSettings.blacklistedCities.map(c => c.toLowerCase()).includes(cityToAdd.toLowerCase())) {
+    const currentBlacklist = currentSettings.blacklistedCities || [];
+    if (currentBlacklist.map(c => c.toLowerCase()).includes(cityToAdd.toLowerCase())) {
       toast({ title: "City already blacklisted", description: `${cityToAdd} is already in the list.`, variant: "default" });
       setNewBlacklistedCity('');
       return;
     }
 
     setIsSavingSettings(true);
-    const updatedBlacklist = [...currentSettings.blacklistedCities, cityToAdd];
+    const updatedBlacklist = [...currentBlacklist, cityToAdd];
     const result = await saveAppSettingsAction({ ...currentSettings, blacklistedCities: updatedBlacklist });
     if (result.success) {
       setCurrentSettings(prev => ({ ...prev, blacklistedCities: updatedBlacklist }));
@@ -178,7 +181,8 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
 
   const handleRemoveBlacklistedCity = async (cityToRemove: string) => {
     setIsSavingSettings(true);
-    const updatedBlacklist = currentSettings.blacklistedCities.filter(city => city !== cityToRemove);
+    const currentBlacklist = currentSettings.blacklistedCities || [];
+    const updatedBlacklist = currentBlacklist.filter(city => city !== cityToRemove);
     const result = await saveAppSettingsAction({ ...currentSettings, blacklistedCities: updatedBlacklist });
     if (result.success) {
       setCurrentSettings(prev => ({ ...prev, blacklistedCities: updatedBlacklist }));
@@ -188,6 +192,57 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
     }
     setIsSavingSettings(false);
   };
+
+  const handleAddCityMapping = async () => {
+    const originalName = newOriginalCityName.trim();
+    const mappedName = newMappedCityName.trim();
+
+    if (!originalName || !mappedName) {
+      toast({ title: "Both city names required", description: "Please enter both original and mapped city names.", variant: "destructive" });
+      return;
+    }
+    if (originalName === mappedName) {
+        toast({ title: "No Change", description: "Original and mapped names are the same.", variant: "default" });
+        return;
+    }
+
+    const currentMappings = currentSettings.cityMappings || {};
+    if (currentMappings[originalName] === mappedName) {
+      toast({ title: "Mapping already exists", description: `"${originalName}" is already mapped to "${mappedName}".`, variant: "default" });
+      setNewOriginalCityName('');
+      setNewMappedCityName('');
+      return;
+    }
+
+    setIsSavingSettings(true);
+    const updatedMappings = { ...currentMappings, [originalName]: mappedName };
+    const result = await saveAppSettingsAction({ ...currentSettings, cityMappings: updatedMappings });
+    if (result.success) {
+      setCurrentSettings(prev => ({ ...prev, cityMappings: updatedMappings }));
+      setNewOriginalCityName('');
+      setNewMappedCityName('');
+      toast({ title: "City Mapping Added", description: `Mapped "${originalName}" to "${mappedName}".` });
+    } else {
+      toast({ title: "Error Adding Mapping", description: result.message, variant: "destructive" });
+    }
+    setIsSavingSettings(false);
+  };
+
+  const handleRemoveCityMapping = async (originalNameToRemove: string) => {
+    setIsSavingSettings(true);
+    const currentMappings = { ...(currentSettings.cityMappings || {}) };
+    delete currentMappings[originalNameToRemove];
+    
+    const result = await saveAppSettingsAction({ ...currentSettings, cityMappings: currentMappings });
+    if (result.success) {
+      setCurrentSettings(prev => ({ ...prev, cityMappings: currentMappings }));
+      toast({ title: "City Mapping Removed", description: `Mapping for "${originalNameToRemove}" removed.` });
+    } else {
+      toast({ title: "Error Removing Mapping", description: result.message, variant: "destructive" });
+    }
+    setIsSavingSettings(false);
+  };
+
 
   const handleTestSourceConnections = async () => {
     setIsTestingSources(true);
@@ -205,7 +260,6 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
     } catch (error) {
       console.error("Error testing data sources:", error);
       toast({ title: "Error During Source Test", description: `An unexpected error occurred: ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
-       // Set a generic error for all if the action fails
       setHealthCheckResults(initialSettings.sheetUrls ? (Object.keys(initialSettings.sheetUrls) as Array<keyof typeof initialSettings.sheetUrls>).map(client => ({
         client,
         status: 'url_error' as HealthCheckStatus,
@@ -296,7 +350,7 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
           <div className="flex space-x-2">
             <Input
               type="text"
-              placeholder="Enter city name to blacklist"
+              placeholder="Enter city name"
               value={newBlacklistedCity}
               onChange={(e) => setNewBlacklistedCity(e.target.value)}
               disabled={isSavingSettings || isTestingSources}
@@ -306,10 +360,10 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
               Add
             </Button>
           </div>
-          {currentSettings.blacklistedCities.length > 0 ? (
+          {(currentSettings.blacklistedCities?.length || 0) > 0 ? (
             <ScrollArea className="h-40 w-full rounded-md border p-2">
               <ul className="space-y-1">
-                {currentSettings.blacklistedCities.map((city) => (
+                {(currentSettings.blacklistedCities || []).map((city) => (
                   <li key={city} className="flex justify-between items-center p-1.5 text-sm bg-muted/30 rounded">
                     <span>{city}</span>
                     <Button
@@ -332,8 +386,73 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
         </CardContent>
         <CardFooter><p className="text-xs text-muted-foreground">Blacklist is stored in Firestore and affects all users.</p></CardFooter>
       </Card>
+      
+      <Card className="lg:col-span-2">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Map className="h-5 w-5 text-primary" /> City Name Mappings</CardTitle>
+          <CardDescription>Standardize city names by mapping variations (e.g., "Bangalore" to "Bengaluru"). Applied during data ingestion.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
+            <div className="space-y-1">
+              <Label htmlFor="original-city-name">Original Name (from Sheet)</Label>
+              <Input
+                id="original-city-name"
+                placeholder="e.g., Bangalore"
+                value={newOriginalCityName}
+                onChange={(e) => setNewOriginalCityName(e.target.value)}
+                disabled={isSavingSettings}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="mapped-city-name">Standardized Name (to use)</Label>
+              <Input
+                id="mapped-city-name"
+                placeholder="e.g., Bengaluru"
+                value={newMappedCityName}
+                onChange={(e) => setNewMappedCityName(e.target.value)}
+                disabled={isSavingSettings}
+              />
+            </div>
+          </div>
+           <Button onClick={handleAddCityMapping} disabled={isSavingSettings || !newOriginalCityName.trim() || !newMappedCityName.trim()} className="w-full sm:w-auto">
+            {isSavingSettings && (newOriginalCityName.trim() && newMappedCityName.trim()) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />}
+            Add/Update Mapping
+          </Button>
 
-      <Card className="lg:col-span-2 xl:col-span-3">
+          {(Object.keys(currentSettings.cityMappings || {}).length || 0) > 0 ? (
+            <ScrollArea className="h-48 w-full rounded-md border p-2">
+              <ul className="space-y-2">
+                {Object.entries(currentSettings.cityMappings || {}).map(([original, mapped]) => (
+                  <li key={original} className="flex justify-between items-center p-2 text-sm bg-muted/30 rounded">
+                    <div>
+                      <span className="font-semibold">{original}</span>
+                      <span className="text-muted-foreground mx-1">→</span>
+                      <span>{mapped}</span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={() => handleRemoveCityMapping(original)}
+                      disabled={isSavingSettings}
+                      aria-label={`Remove mapping for ${original}`}
+                    >
+                      <Trash className="h-4 w-4 text-destructive hover:text-destructive/80" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </ScrollArea>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-2">No city name mappings are currently configured.</p>
+          )}
+        </CardContent>
+        <CardFooter><p className="text-xs text-muted-foreground">City mappings are stored in Firestore and applied during data ingestion.</p></CardFooter>
+      </Card>
+
+
+      <Card className="lg:col-span-1 xl:col-span-1"> {/* Adjusted span to ensure it fits */}
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5 text-primary" /> Data Source Health Checks</CardTitle>
           <CardDescription>Test connectivity and header validity for configured Google Sheet sources.</CardDescription>

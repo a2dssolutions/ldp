@@ -13,6 +13,7 @@ export interface AppSettings {
   theme: 'light' | 'dark';
   defaultDateRange: string; // e.g., 'today', 'yesterday'
   blacklistedCities: string[];
+  cityMappings: Record<string, string>; // FromName: ToName
 }
 
 // Define default settings, especially sheet URLs which might be initially hardcoded
@@ -29,6 +30,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   theme: 'light',
   defaultDateRange: 'today',
   blacklistedCities: [],
+  cityMappings: {}, // Initialize as empty object
 };
 
 export async function getAppSettings(): Promise<AppSettings> {
@@ -38,22 +40,21 @@ export async function getAppSettings(): Promise<AppSettings> {
 
     if (docSnap.exists()) {
       const data = docSnap.data() as Partial<AppSettings>;
-      // Merge with defaults to ensure all fields are present, especially if new settings are added
+      // Merge with defaults to ensure all fields are present
       return {
         sheetUrls: { ...DEFAULT_SHEET_URLS, ...data.sheetUrls },
         theme: data.theme || DEFAULT_SETTINGS.theme,
         defaultDateRange: data.defaultDateRange || DEFAULT_SETTINGS.defaultDateRange,
         blacklistedCities: Array.isArray(data.blacklistedCities) ? data.blacklistedCities : DEFAULT_SETTINGS.blacklistedCities,
+        cityMappings: typeof data.cityMappings === 'object' && data.cityMappings !== null ? data.cityMappings : DEFAULT_SETTINGS.cityMappings,
       };
     } else {
       console.log('No app settings found in Firestore, returning default settings and attempting to save them.');
-      // Optionally, save default settings if they don't exist
       await setDoc(docRef, DEFAULT_SETTINGS);
       return DEFAULT_SETTINGS;
     }
   } catch (error) {
     console.error("Error fetching app settings from Firestore:", error);
-    // Fallback to default settings in case of an error
     return DEFAULT_SETTINGS;
   }
 }
@@ -62,7 +63,13 @@ export async function saveAppSettings(settings: Partial<AppSettings>): Promise<{
   try {
     const docRef = doc(db, CONFIG_COLLECTION, APP_SETTINGS_DOC_ID);
     const currentSettings = await getAppSettings(); 
-    const newSettings = { ...currentSettings, ...settings };
+    // Ensure cityMappings is always an object, even if `settings.cityMappings` is not provided or null
+    const newCityMappings = settings.cityMappings ?? currentSettings.cityMappings;
+    const newSettings = { 
+        ...currentSettings, 
+        ...settings,
+        cityMappings: typeof newCityMappings === 'object' && newCityMappings !== null ? newCityMappings : {},
+    };
 
     await setDoc(docRef, newSettings, { merge: true }); 
     return { success: true, message: 'Application settings saved successfully.' };
@@ -71,4 +78,3 @@ export async function saveAppSettings(settings: Partial<AppSettings>): Promise<{
     return { success: false, message: `Failed to save settings: ${error instanceof Error ? error.message : String(error)}` };
   }
 }
-

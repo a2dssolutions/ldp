@@ -10,7 +10,6 @@ interface ClientSheetConfig {
   areaField: string;
   demandScoreField: string | ((row: Record<string, string>) => number);
   rowFilter?: (row: Record<string, string>, headers: string[]) => boolean;
-  // Required headers for health check (subset of fields above that are strings)
   requiredHeadersForHealthCheck?: string[];
 }
 
@@ -32,7 +31,7 @@ const clientConfigs: Record<ClientName, Omit<ClientSheetConfig, 'url'>> = {
     cityField: 'City',
     areaField: 'Area',
     demandScoreField: 'Daily demand',
-    rowFilter: (row) => {
+     rowFilter: (row) => {
       return !!row['Store id']?.trim() &&
              !!row['City']?.trim() &&
              row['Daily demand'] !== undefined && row['Daily demand']?.trim() !== '' &&
@@ -59,7 +58,7 @@ const clientConfigs: Record<ClientName, Omit<ClientSheetConfig, 'url'>> = {
   Zepto: {
     idField: (row) => row['Store']?.trim() || `zepto-gen-${Date.now()}`,
     cityField: 'City',
-    areaField: 'Store',
+    areaField: 'Store', // Using 'Store' as area for Zepto as per sample
     demandScoreField: (row) => {
       const morningFT = parseInt(row['Morning_FT Demand'], 10) || 0;
       const morningPT = parseInt(row['Morning_PT Demand'], 10) || 0;
@@ -93,8 +92,7 @@ function parseCSV(csvText: string, forHealthCheck: boolean = false): { headers: 
 
   if (headers.length === 0) return { headers: [], data: [] };
 
-  // For health check, we might only need headers, or just a few lines
-  const dataRows = forHealthCheck ? lines.slice(1, 2) : lines.slice(1); // Slice 1 for one data row, or all for full parse
+  const dataRows = forHealthCheck ? lines.slice(1, 2) : lines.slice(1);
   
   const data = dataRows
     .map(line => {
@@ -115,7 +113,11 @@ function parseCSV(csvText: string, forHealthCheck: boolean = false): { headers: 
   return { headers, data };
 }
 
-async function fetchSheetDataForClient(client: ClientName, sheetUrl: string): Promise<{ data: MergedSheetData[], result: ClientFetchResult }> {
+async function fetchSheetDataForClient(
+  client: ClientName, 
+  sheetUrl: string,
+  cityMappings: Record<string, string> = {} // Added cityMappings parameter
+): Promise<{ data: MergedSheetData[], result: ClientFetchResult }> {
   console.log(`Fetching sheet data for ${client} from URL: ${sheetUrl}`);
   const config = clientConfigs[client];
   if (!config) {
@@ -175,7 +177,12 @@ async function fetchSheetDataForClient(client: ClientName, sheetUrl: string): Pr
         ? config.idField(row, index, client) 
         : row[config.idField as string]?.trim() || `${client.toLowerCase()}-gen-${index}-${Date.now()}`;
       
-      const city = row[config.cityField]?.trim() || '';
+      let cityName = row[config.cityField]?.trim() || '';
+      // Apply city mapping
+      if (cityMappings[cityName]) {
+        cityName = cityMappings[cityName];
+      }
+
       const area = row[config.areaField]?.trim() || '';
       
       let demandScore: number;
@@ -186,7 +193,7 @@ async function fetchSheetDataForClient(client: ClientName, sheetUrl: string): Pr
       }
       if (isNaN(demandScore)) demandScore = 0; 
 
-       if (!city && typeof config.cityField === 'string' && config.cityField !== '') { 
+       if (!cityName && typeof config.cityField === 'string' && config.cityField !== '') { 
             console.warn(`Skipping row for client ${client} due to missing city based on config. Row: ${JSON.stringify(row).substring(0,100)}`);
             return null;
        }
@@ -198,7 +205,7 @@ async function fetchSheetDataForClient(client: ClientName, sheetUrl: string): Pr
       return {
         id,
         client,
-        city,
+        city: cityName, // Use the (potentially mapped) city name
         area,
         demandScore,
         timestamp: currentTime,
@@ -223,7 +230,8 @@ async function fetchSheetDataForClient(client: ClientName, sheetUrl: string): Pr
 
 export async function fetchAllSheetsData(
     sheetUrlsByName: Record<ClientName, string>, 
-    clientsToFetch?: ClientName[]
+    clientsToFetch?: ClientName[],
+    cityMappings?: Record<string, string> // Added cityMappings parameter
 ): Promise<FetchAllSheetsDataActionResult> {
   
   const clientsToProcess = clientsToFetch && clientsToFetch.length > 0 
@@ -240,7 +248,8 @@ export async function fetchAllSheetsData(
       clientResults.push({ client, status: 'error', message: `URL not configured for ${client}.`, rowCount: 0 });
       continue;
     }
-    const { data: clientSheetData, result: clientFetchResult } = await fetchSheetDataForClient(client, urlForClient);
+    // Pass cityMappings to fetchSheetDataForClient
+    const { data: clientSheetData, result: clientFetchResult } = await fetchSheetDataForClient(client, urlForClient, cityMappings);
     clientResults.push(clientFetchResult); 
     if (clientSheetData && clientSheetData.length > 0) {
       allMergedData = allMergedData.concat(clientSheetData);
@@ -285,7 +294,7 @@ export async function testClientDataSource(
       return result;
     }
 
-    const { headers: parsedHeaders, data: parsedRows } = parseCSV(csvText, true); // true for health check (limited rows)
+    const { headers: parsedHeaders, data: parsedRows } = parseCSV(csvText, true); 
 
     if (parsedHeaders.length === 0) {
       result.status = 'parse_error';
@@ -315,7 +324,7 @@ export async function testClientDataSource(
     return result;
 
   } catch (error) {
-    result.status = 'url_error'; // Or a more generic 'test_error'
+    result.status = 'url_error'; 
     result.message = error instanceof Error ? error.message : 'An unknown error occurred during test.';
     return result;
   }
