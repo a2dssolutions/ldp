@@ -1,7 +1,7 @@
 
 'use client';
 
-import type { ChangeEvent, FormEvent } from 'react';
+import type { ChangeEvent } from 'react';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Bar, Pie, BarChart, PieChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, CartesianGrid, Cell } from 'recharts';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,7 @@ import {
   calculateClientDemandSummary,
   calculateAreaDemandSummary,
   calculateMultiClientHotspots,
-  performLocalSyncOperations // Changed from individual operations
+  performLocalSyncOperations
 } from '@/lib/services/demand-data-service';
 import type { DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity, LocalSyncMeta } from '@/lib/types';
 import type { LocalDemandRecord } from '@/lib/dexie';
@@ -84,7 +84,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
     try {
       const result = await syncLocalDemandDataForDateAction(dateToSync); 
       if (result.success) {
-        await performLocalSyncOperations(dateToSync, result.data); // Use new transactional function
+        await performLocalSyncOperations(dateToSync, result.data); 
         toast({ title: "Auto Sync Successful", description: `${result.data.length} records updated in local cache for ${dateToSync}.` });
       } else {
         toast({ title: "Auto Sync Failed", description: result.message || "Could not sync data from cloud.", variant: "destructive" });
@@ -110,23 +110,35 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
     window.addEventListener('resize', calculateRadius);
     
     if (isClientRendered && isValid(selectedDate)) {
-        const noLocalDataForSelectedDate = !localDemandData || localDemandData.length === 0;
+        const dataPresentForSelectedDate = localDemandData && localDemandData.length > 0;
         
-        const lastSyncDay = lastSyncedDate ? startOfDay(lastSyncedDate).getTime() : null;
-        const selectedDay = startOfDay(selectedDate).getTime();
-        const isSelectedDateSynced = lastSyncDay === selectedDay;
+        let triggerSync = false;
+        let reason = "";
 
-        const needsSync = noLocalDataForSelectedDate || (isToday(selectedDate) && !isSelectedDateSynced);
+        if (isToday(selectedDate)) {
+            // For today, ONLY sync if data is NOT present locally.
+            // If data IS present (e.g. from "Upload to Local Only"), trust it.
+            // User can force refresh today via Admin Panel's "Sync Today from Cloud to Local" button.
+            if (!dataPresentForSelectedDate) {
+                triggerSync = true;
+                reason = "Today's data missing locally.";
+            }
+        } else {
+            // For past dates, if data is not present locally, sync it.
+            if (!dataPresentForSelectedDate) {
+                triggerSync = true;
+                reason = `Data for ${selectedDateString} missing locally.`;
+            }
+        }
 
-
-        if (needsSync) {
-            console.log(`Dashboard: Auto-sync triggered for ${selectedDateString}. Reason: ${noLocalDataForSelectedDate ? 'No local data' : (isToday(selectedDate) && !isSelectedDateSynced ? 'Needs refresh for today' : 'Condition met')}. Last synced: ${lastSyncedDate ? format(lastSyncedDate, 'PPP p') : 'Never'}, Local data count for date: ${localDemandData?.length || 0}`);
+        if (triggerSync && !isSyncing) {
+            console.log(`Dashboard: Auto-sync triggered for ${selectedDateString}. Reason: ${reason}. Last synced: ${lastSyncedDate ? format(lastSyncedDate, 'PPP p') : 'Never'}`);
             handleAutoSync();
         }
     }
 
     return () => window.removeEventListener('resize', calculateRadius);
-  }, [selectedDate, isClientRendered, handleAutoSync, localDemandData, lastSyncedDate, selectedDateString]);
+  }, [selectedDate, isClientRendered, handleAutoSync, localDemandData, lastSyncedDate, selectedDateString, isSyncing]);
 
 
   const filteredDemandData = useMemo(() => {
@@ -300,9 +312,6 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                   <p className="text-sm text-muted-foreground">Displaying data for: <span className="font-semibold text-foreground">{isValid(selectedDate) ? format(selectedDate, 'PPP') : 'Loading date...'}</span></p>
                   <p className="text-sm text-muted-foreground">Total records in local cache for this date: <span className="font-semibold text-foreground">{localDemandData?.length || 0}</span></p>
                   <p className="text-sm text-muted-foreground">Last cloud sync for any date: {lastSyncedDate  && isValid(lastSyncedDate) ? <span className="font-semibold text-foreground">{format(lastSyncedDate, 'PPP p')}</span> : <span className="font-semibold text-foreground">Never</span>}</p>
-                  {isValid(selectedDate) && isToday(selectedDate) && lastSyncedDate && !isToday(lastSyncedDate) && (
-                    <Badge variant="destructive">Data for today might be stale. Auto-sync should resolve this.</Badge>
-                  )}
                   {isSyncing && <p className="text-sm text-primary">Syncing in progress...</p>}
               </CardContent>
             </Card>
@@ -328,7 +337,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
               ) : isClientRendered ? (
                  <p className="text-center text-sm text-muted-foreground py-4">
                   {isSyncing ? 'Syncing data...' : 
-                   (!localDemandData || localDemandData.length === 0) ? `No data found in local cache for ${selectedDateString}. Automatic sync may be in progress or the Admin Panel sync can be used.` : 
+                   (!localDemandData || localDemandData.length === 0) ? `No data found in local cache for ${selectedDateString}. Use Data Ingestion or Admin Panel to sync.` : 
                    'No data matches the current filters for the selected date.'}
                 </p>
               ) : <Skeleton className="h-40 w-full" />}
@@ -343,7 +352,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
 function DashboardSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 items-end mb-6"> {/* Changed lg:grid-cols-5 to lg:grid-cols-3 */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 items-end mb-6">
         <Skeleton className="h-10 w-full" />
         <Skeleton className="h-10 w-full" />
         <Skeleton className="h-10 w-full" />
