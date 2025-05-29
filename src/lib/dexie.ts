@@ -8,14 +8,11 @@ export interface LocalSyncMeta {
 }
 
 export interface LocalDemandRecord extends DemandData {
-  // Dexie requires a primary key, 'id' from DemandData should work if unique
-  // If 'id' is not unique enough across all data, we might need a compound key or a truly unique local ID.
-  // For now, assuming 'id' from DemandData (original sourceSystemId or generated) is sufficient.
-  // Add 'date' as an index for efficient querying.
+  localId?: number; // Dexie adds this if it's an auto-incrementing primary key
 }
 
 export class LocalDexieDB extends Dexie {
-  demandRecords!: Table<LocalDemandRecord, string>; // Primary key is string (id)
+  demandRecords!: Table<LocalDemandRecord, number>; // Primary key is number (localId)
   meta!: Table<LocalSyncMeta, string>; // Primary key is string (id of meta record)
 
   constructor() {
@@ -34,9 +31,6 @@ export class LocalDexieDB extends Dexie {
       // For simplicity here, we are just defining v2 to potentially use auto-incrementing primary key if 'id' from DemandData is problematic.
       // If upgrading from a version where demandRecords primary key was 'id', and 'id' is not unique, this needs careful handling.
       // For now, assuming 'id' is intended to be the unique key from source.
-      // If 'id' from DemandData is not guaranteed to be unique enough across all potential data, 
-      // using '++localId, id, ...' in v2 where localId is auto-incrementing and 'id' is the original ID would be safer.
-      // For this example, let's assume 'id' is unique enough for now from MergedSheetData.
       // The 'date' field will be indexed for efficient queries.
     });
      // Simpler v1 for initial setup, ensuring 'date' is indexed.

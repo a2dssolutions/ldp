@@ -22,7 +22,10 @@ export async function saveDemandDataToStore(data: MergedSheetData[]): Promise<{ 
 
   for (const item of data) {
     const parentId = getDemandRecordParentId(item.client, item.city, item.area);
-    const dateKey = format(parseISO(item.timestamp), 'yyyy-MM-dd');
+    // Ensure timestamp is valid before parsing
+    const itemTimestamp = typeof item.timestamp === 'string' ? item.timestamp : new Date(item.timestamp).toISOString();
+    const dateKey = format(parseISO(itemTimestamp), 'yyyy-MM-dd');
+
 
     const parentDocRef = doc(db, 'demandRecords', parentId);
     const parentDocData = { 
@@ -36,7 +39,7 @@ export async function saveDemandDataToStore(data: MergedSheetData[]): Promise<{ 
     const dailyDocRef = doc(parentDocRef, 'daily', dateKey);
     const dailyDocData = {
       demandScore: item.demandScore,
-      timestamp: item.timestamp, 
+      timestamp: itemTimestamp, 
       sourceSystemId: item.id, 
     };
     currentBatch.set(dailyDocRef, dailyDocData);
@@ -73,9 +76,10 @@ export async function clearAllDemandDataFromStore(): Promise<{ success: boolean;
     if (parentDocsSnapshot.empty) {
       return { success: true, message: "'demandRecords' collection is already empty." };
     }
-    // ... (rest of the clear logic remains the same, ensuring batches for deletion)
+    
     let totalDailyDocsDeleted = 0;
     let totalParentDocsDeleted = 0;
+    const maxBatchOperations = 490; // Firestore batch limit is 500
 
     for (const parentDoc of parentDocsSnapshot.docs) {
       const dailyCollectionRef = collection(db, 'demandRecords', parentDoc.id, 'daily');
@@ -87,7 +91,7 @@ export async function clearAllDemandDataFromStore(): Promise<{ success: boolean;
         dailyBatch.delete(dailyDoc.ref);
         dailyOpsInBatch++;
         totalDailyDocsDeleted++;
-        if (dailyOpsInBatch >= 490) {
+        if (dailyOpsInBatch >= maxBatchOperations) {
           await dailyBatch.commit();
           dailyBatch = writeBatch(db);
           dailyOpsInBatch = 0;
@@ -98,14 +102,16 @@ export async function clearAllDemandDataFromStore(): Promise<{ success: boolean;
       }
     }
 
+    // Re-fetch parent docs to ensure we only delete those that are now empty (or all if desired)
+    // For simplicity, we are deleting all parent docs assuming their subcollections are now empty.
+    const freshParentDocsSnapshot = await getDocs(demandRecordsCollectionRef); 
     let parentBatch = writeBatch(db);
     let parentOpsInBatch = 0;
-    const freshParentDocsSnapshot = await getDocs(demandRecordsCollectionRef); 
     for (const parentDoc of freshParentDocsSnapshot.docs) {
       parentBatch.delete(parentDoc.ref);
       parentOpsInBatch++;
       totalParentDocsDeleted++;
-      if (parentOpsInBatch >= 490) {
+      if (parentOpsInBatch >= maxBatchOperations) {
         await parentBatch.commit();
         parentBatch = writeBatch(db);
         parentOpsInBatch = 0;
@@ -122,12 +128,15 @@ export async function clearAllDemandDataFromStore(): Promise<{ success: boolean;
   }
 }
 
-// Firestore Data Fetching (used by server actions for syncing to local)
-const MAX_PARENT_DOCS_FOR_BROAD_QUERY = 150;
-const MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY = 150;
-const MAX_RESULTS_TO_CLIENT = 500;
-const MAX_PARENT_DOCS_FOR_BROAD_ANALYSIS_QUERY = 750;
+
+const MAX_PARENT_DOCS_FOR_BROAD_QUERY = 150; 
+const MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY = 150; 
+const MAX_RESULTS_TO_CLIENT = 500; 
+
+// Analysis queries might need more, but still capped
+const MAX_PARENT_DOCS_FOR_BROAD_ANALYSIS_QUERY = 750; 
 const MAX_DAILY_FETCHES_FOR_SPECIFIC_ANALYSIS_QUERY = 750;
+
 
 export async function getDemandDataFromFirestore(filters?: {
   client?: ClientName;
@@ -145,11 +154,14 @@ export async function getDemandDataFromFirestore(filters?: {
   if (filters?.client) qConstraints.push(where('client', '==', filters.client));
   if (filters?.city && filters.city.trim() !== '') qConstraints.push(where('city', '==', filters.city.trim()));
   
-  let queryLimitApplied = false;
+  let queryLimitForParents: number | undefined = undefined;
+
   if (isBroadQuery) {
-    const limitToApply = options?.bypassLimits ? MAX_PARENT_DOCS_FOR_BROAD_ANALYSIS_QUERY : MAX_PARENT_DOCS_FOR_BROAD_QUERY;
-    qConstraints.push(limit(limitToApply));
-    queryLimitApplied = true;
+    queryLimitForParents = options?.bypassLimits ? MAX_PARENT_DOCS_FOR_BROAD_ANALYSIS_QUERY : MAX_PARENT_DOCS_FOR_BROAD_QUERY;
+  }
+  
+  if(queryLimitForParents) {
+    qConstraints.push(limit(queryLimitForParents));
   }
   
   const finalParentQuery = query(parentCollectionRef, ...qConstraints);
@@ -160,9 +172,12 @@ export async function getDemandDataFromFirestore(filters?: {
     if (parentDocsSnapshot.empty) return [];
 
     let docsToProcess = parentDocsSnapshot.docs;
-    if (!queryLimitApplied && !isBroadQuery) { 
+    
+    // If it wasn't a broad query and no limit was applied yet, but we still got many parents, apply a processing limit.
+    if (!isBroadQuery && !queryLimitForParents) { 
       const processingLimit = options?.bypassLimits ? MAX_DAILY_FETCHES_FOR_SPECIFIC_ANALYSIS_QUERY : MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY;
       if (docsToProcess.length > processingLimit) {
+        console.warn(`[getDemandDataFromFirestore] Specific query for client/city resulted in ${docsToProcess.length} parent entities. Capping processing to ${processingLimit}.`);
         docsToProcess = docsToProcess.slice(0, processingLimit);
       }
     }
@@ -209,13 +224,9 @@ export async function getHistoricalDemandDataFromFirestore(
   if (filters?.client) parentQueryConstraints.push(where('client', '==', filters.client));
   if (filters?.city && filters.city.trim() !== '') parentQueryConstraints.push(where('city', '==', filters.city.trim()));
   
-  // Apply a limit to parent documents for broad historical queries to avoid excessive sub-collection reads
-  const initialParentQuery = query(parentCollectionRef, ...parentQueryConstraints);
-  const parentCountSnapshot = await getDocs(initialParentQuery);
-  if (parentCountSnapshot.docs.length > MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY) { // Using a moderate limit here
-    parentQueryConstraints.push(limit(MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY));
-    console.warn(`[getHistoricalDemandDataFromFirestore] Applied limit of ${MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY} to parent document query. Original matches: ${parentCountSnapshot.docs.length}`);
-  }
+  const historicalProcessingLimit = MAX_DAILY_FETCHES_FOR_SPECIFIC_ANALYSIS_QUERY; // Use a generous limit for history
+  parentQueryConstraints.push(limit(historicalProcessingLimit));
+
 
   const finalParentQuery = query(parentCollectionRef, ...parentQueryConstraints);
   const historicalEntries: DemandData[] = [];
@@ -223,6 +234,10 @@ export async function getHistoricalDemandDataFromFirestore(
   try {
     const parentDocsSnapshot = await getDocs(finalParentQuery);
     if (parentDocsSnapshot.empty) return [];
+
+    if (parentDocsSnapshot.docs.length >= historicalProcessingLimit) {
+         console.warn(`[getHistoricalDemandDataFromFirestore] Parent document query hit the processing limit of ${historicalProcessingLimit}. Results may be partial for very broad historical queries.`);
+    }
 
     for (const parentDoc of parentDocsSnapshot.docs) {
       const parentData = parentDoc.data() as { client: ClientName; city: string; area: string };
@@ -251,7 +266,7 @@ export async function getHistoricalDemandDataFromFirestore(
     
     historicalEntries.sort((a, b) => a.date.localeCompare(b.date) || b.demandScore - a.demandScore);
     
-    if (historicalEntries.length > MAX_RESULTS_TO_CLIENT) { // Using MAX_RESULTS_TO_CLIENT as a general cap
+    if (historicalEntries.length > MAX_RESULTS_TO_CLIENT) { 
         return historicalEntries.slice(0, MAX_RESULTS_TO_CLIENT);
     }
     return historicalEntries;
@@ -262,7 +277,7 @@ export async function getHistoricalDemandDataFromFirestore(
 }
 
 // Dexie (Local IndexedDB) Service Functions
-export async function getLocalDemandDataForDate(date: string): Promise<DemandData[]> {
+export async function getLocalDemandDataForDate(date: string): Promise<LocalDemandRecord[]> {
   try {
     return await localDb.demandRecords.where('date').equals(date).toArray();
   } catch (error) {
@@ -274,8 +289,11 @@ export async function getLocalDemandDataForDate(date: string): Promise<DemandDat
 export async function saveDemandDataToLocalDB(data: DemandData[]): Promise<void> {
   if (!data || data.length === 0) return;
   try {
-    // Using bulkPut for efficient add/update. It uses the primary key ('id') to update if exists, or add if not.
-    await localDb.demandRecords.bulkPut(data.map(d => ({...d} as LocalDemandRecord))); // Ensure it's plain objects
+    // Dexie's bulkPut uses the primary key ('localId') to add or update.
+    // Since 'localId' is auto-incrementing and not part of incoming DemandData,
+    // this will always add new records if not cleared first.
+    // The clearing logic is handled in DemandDashboardClient before calling this.
+    await localDb.demandRecords.bulkPut(data.map(d => ({...d} as LocalDemandRecord)));
   } catch (error) {
     console.error("Error saving demand data to local DB:", error);
   }
@@ -293,6 +311,7 @@ export async function clearAllLocalDemandData(): Promise<{success: boolean, mess
   try {
     await localDb.demandRecords.clear();
     await localDb.meta.clear(); // Also clear meta table
+    console.log("Local Dexie DB cleared successfully.");
     return {success: true, message: "Successfully cleared all local demand data."};
   } catch (error) {
     console.error("Error clearing all local demand data:", error);
@@ -313,7 +332,8 @@ export async function getSyncStatus(): Promise<LocalSyncMeta | null> {
 export async function updateSyncStatus(timestamp: Date): Promise<void> {
   try {
     await localDb.meta.put({ id: 'lastSyncStatus', timestamp: timestamp.getTime() });
-  } catch (error) {
+  } catch (error)
+ {
     console.error("Error updating sync status:", error);
   }
 }

@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { DatePicker } from '@/components/ui/date-picker';
-import { syncLocalDemandDataForDateAction } from '@/lib/actions'; // Using new sync action
+import { syncLocalDemandDataForDateAction } from '@/lib/actions';
 import { 
   getLocalDemandDataForDate, 
   saveDemandDataToLocalDB, 
@@ -24,6 +24,7 @@ import {
   calculateMultiClientHotspots
 } from '@/lib/services/demand-data-service';
 import type { DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity, LocalSyncMeta } from '@/lib/types';
+import type { LocalDemandRecord } from '@/lib/dexie';
 import { format, parseISO, isToday, isValid, startOfDay } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Users, MapPin, TrendingUp, Zap, RefreshCcw, Info } from 'lucide-react';
@@ -36,22 +37,26 @@ const CLIENT_OPTIONS: ClientName[] = ['Zepto', 'Blinkit', 'SwiggyFood', 'SwiggyI
 const CHART_COLORS = ['hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'];
 const ALL_CLIENTS_SELECT_ITEM_VALUE = "_ALL_CLIENTS_DASHBOARD_";
 
-export function DemandDashboardClient() {
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date()); // Defaults to today
+interface DemandDashboardClientProps {
+  initialSelectedDate: Date;
+}
+
+export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardClientProps) {
+  const [selectedDate, setSelectedDate] = useState<Date>(initialSelectedDate); 
   const selectedDateString = useMemo(() => format(selectedDate, 'yyyy-MM-dd'), [selectedDate]);
 
   // Live query for demand data for the selected date
   const localDemandData = useLiveQuery(
     () => getLocalDemandDataForDate(selectedDateString),
-    [selectedDateString], // Dependencies
-    [] // Default value
+    [selectedDateString], 
+    [] as LocalDemandRecord[] // Default value
   );
 
   // Live query for sync status
   const syncMeta = useLiveQuery(
     () => getSyncStatus(),
     [],
-    { id: 'lastSyncStatus', timestamp: null } as LocalSyncMeta // Default value
+    { id: 'lastSyncStatus', timestamp: null } as LocalSyncMeta 
   );
   
   const lastSyncedDate = useMemo(() => {
@@ -59,7 +64,7 @@ export function DemandDashboardClient() {
   }, [syncMeta]);
 
   const [filters, setFilters] = useState<{ client?: ClientName; city?: string }>({});
-  const [isLoading, setIsLoading] = useState(false); // For sync operation
+  const [isLoading, setIsLoading] = useState(false); 
   const { toast } = useToast();
   
   const [isClientRendered, setIsClientRendered] = useState(false);
@@ -69,13 +74,11 @@ export function DemandDashboardClient() {
     setIsLoading(true);
     toast({ title: "Syncing Data...", description: `Fetching latest data for ${selectedDateString} from cloud.` });
     try {
-      // Clear local data for the target date before syncing to ensure no stale entries remain if Firestore has less data
-      await clearDemandDataForDateFromLocalDB(selectedDateString);
-
       const result = await syncLocalDemandDataForDateAction(selectedDateString);
       if (result.success) {
+        await clearDemandDataForDateFromLocalDB(selectedDateString); // Clear local data for the date before saving new
         await saveDemandDataToLocalDB(result.data);
-        await updateSyncStatus(new Date()); // Update last synced to now
+        await updateSyncStatus(new Date()); 
         toast({ title: "Sync Successful", description: `${result.data.length} records updated for ${selectedDateString}.` });
       } else {
         toast({ title: "Sync Failed", description: result.message || "Could not sync data from cloud.", variant: "destructive" });
@@ -99,22 +102,25 @@ export function DemandDashboardClient() {
     calculateRadius(); 
     window.addEventListener('resize', calculateRadius);
     
-    // Initial sync logic if data is stale or missing for today
-    const needsSync = !lastSyncedDate || !isToday(lastSyncedDate) || (localDemandData && localDemandData.length === 0 && isToday(selectedDate));
-    if (needsSync && isToday(selectedDate)) { // Only auto-sync if the selected date is today and it needs sync
-      console.log("Dashboard: Local data for today is missing or stale. Triggering initial sync.");
-      handleSyncData();
+    const needsSync = !lastSyncedDate || format(lastSyncedDate, 'yyyy-MM-dd') !== selectedDateString || (localDemandData && localDemandData.length === 0);
+    
+    if (needsSync || (isToday(selectedDate) && (!lastSyncedDate || !isToday(lastSyncedDate)))) {
+       if(isClientRendered){ // Ensure this runs only client side
+        console.log(`Dashboard: Sync needed for ${selectedDateString}. Last synced: ${lastSyncedDate}, Local data count: ${localDemandData?.length}`);
+        handleSyncData();
+       }
     }
 
     return () => window.removeEventListener('resize', calculateRadius);
-  }, [lastSyncedDate, localDemandData, selectedDate, handleSyncData]); // Add handleSyncData to dependencies
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDateString, isClientRendered]); // Removed handleSyncData, localDemandData, lastSyncedDate to prevent potential loops. Sync is triggered by selectedDateString change primarily.
+
 
   const filteredDemandData = useMemo(() => {
     if (!localDemandData) return [];
     return localDemandData.filter(item => {
       const clientMatch = filters.client ? item.client === filters.client : true;
       const cityMatch = filters.city ? item.city.toLowerCase().includes(filters.city.toLowerCase()) : true;
-      // Date is already filtered by the Dexie query via selectedDateString
       return clientMatch && cityMatch;
     });
   }, [localDemandData, filters]);
@@ -127,14 +133,6 @@ export function DemandDashboardClient() {
   const handleFilterChange = (name: string, value: string | Date | ClientName | undefined) => {
     if (name === 'date' && value instanceof Date && isValid(value)) {
       setSelectedDate(value);
-      // Data will refetch via useLiveQuery due to selectedDateString change
-      // We might want to trigger a sync if date changes to a non-synced date
-      const newDateStr = format(value, 'yyyy-MM-dd');
-      const dateIsSynced = lastSyncedDate && format(lastSyncedDate, 'yyyy-MM-dd') === newDateStr;
-      if(!dateIsSynced) {
-        // Optional: auto-sync when date changes if not already synced for that day
-        // handleSyncData(); // Or prompt user
-      }
     } else if (name === 'client' || name === 'city') {
       setFilters(prev => ({ ...prev, [name]: value as string | ClientName | undefined }));
     }
@@ -156,7 +154,7 @@ export function DemandDashboardClient() {
         <CardHeader>
           <CardTitle>Filter & Sync Demand Data</CardTitle>
           <CardDescription>
-            Refine local data or sync with cloud. Last synced: {lastSyncedDate ? format(lastSyncedDate, 'PPP p') : 'Never'}
+            Refine local data or sync with cloud. Last synced: {lastSyncedDate ? format(lastSyncedDate, 'PPP p') : 'Never'} for {lastSyncedDate ? format(lastSyncedDate, 'yyyy-MM-dd') : 'N/A'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -184,7 +182,7 @@ export function DemandDashboardClient() {
               <Label htmlFor="city-filter">City</Label>
               <Input id="city-filter" placeholder="Enter city name" value={filters.city || ''} onChange={(e: ChangeEvent<HTMLInputElement>) => handleFilterChange('city', e.target.value)} />
             </div>
-            <div className="lg:col-span-2"> {/* Make sync button span more for better layout */}
+            <div className="lg:col-span-2">
               <Button onClick={() => handleSyncData(true)} disabled={isLoading} className="w-full">
                 {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
                 Force Sync Now
@@ -293,8 +291,13 @@ export function DemandDashboardClient() {
                   <Table>
                     <TableHeader className="sticky top-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"><TableRow><TableHead>Client</TableHead><TableHead>City</TableHead><TableHead>Area</TableHead><TableHead>Demand Score</TableHead><TableHead>Priority</TableHead><TableHead>Date</TableHead></TableRow></TableHeader>
                     <TableBody>
-                      {filteredDemandData.map(item => { const tier = getDemandTier(item.demandScore); return (
-                        <TableRow key={item.id}><TableCell className="text-xs sm:text-sm">{item.client}</TableCell><TableCell className="text-xs sm:text-sm">{item.city}</TableCell><TableCell className="text-xs sm:text-sm">{item.area}</TableCell><TableCell className="text-xs sm:text-sm">{item.demandScore}</TableCell><TableCell><Badge variant={tier.variant}>{tier.label}</Badge></TableCell><TableCell className="text-xs sm:text-sm">{item.date}</TableCell></TableRow>
+                      {filteredDemandData.map((item: LocalDemandRecord) => { 
+                        const tier = getDemandTier(item.demandScore); 
+                        // Use localId if available and unique, otherwise fallback to item.id (original id)
+                        // For lists, React needs a unique key. localId is guaranteed unique by Dexie.
+                        const key = item.localId !== undefined ? item.localId : item.id;
+                        return (
+                        <TableRow key={key}><TableCell className="text-xs sm:text-sm">{item.client}</TableCell><TableCell className="text-xs sm:text-sm">{item.city}</TableCell><TableCell className="text-xs sm:text-sm">{item.area}</TableCell><TableCell className="text-xs sm:text-sm">{item.demandScore}</TableCell><TableCell><Badge variant={tier.variant}>{tier.label}</Badge></TableCell><TableCell className="text-xs sm:text-sm">{item.date}</TableCell></TableRow>
                       );})}
                     </TableBody>
                   </Table>
@@ -310,7 +313,6 @@ export function DemandDashboardClient() {
   );
 }
 
-// Re-add skeleton for dashboard as it's used when data is loading client-side
 function DashboardSkeleton() {
   return (
     <div className="space-y-6">
