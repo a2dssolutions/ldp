@@ -8,11 +8,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { fetchAllSheetsDataAction, saveDemandDataAction } from '@/lib/actions';
-import type { MergedSheetData, ClientName } from '@/lib/types';
+import type { MergedSheetData, ClientName, DemandData } from '@/lib/types'; // Added DemandData
 import type { ClientFetchResult } from '@/lib/services/google-sheet-service';
+import { saveBatchDataToLocalDB } from '@/lib/services/demand-data-service'; // Import new local save function
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, UploadCloud, FileText, AlertTriangle, CheckCircle, XCircle, FileQuestion, Info } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { format, parseISO } from 'date-fns'; // For date transformation
 
 const ALL_CLIENT_NAMES: ClientName[] = ['Zepto', 'Blinkit', 'SwiggyFood', 'SwiggyIM'];
 
@@ -35,7 +37,7 @@ export function DataIngestionClient() {
     ALL_CLIENT_NAMES.map(client => ({ client, status: 'initial', rowCount: 0 }))
   );
   
-  const [selectedClientsToFetch, setSelectedClientsToFetch] = useState<ClientName[]>(ALL_CLIENT_NAMES); // Default to all clients selected
+  const [selectedClientsToFetch, setSelectedClientsToFetch] = useState<ClientName[]>(ALL_CLIENT_NAMES);
   const [selectedClientsToUpload, setSelectedClientsToUpload] = useState<ClientName[]>([]);
 
   const [isFetching, setIsFetching] = useState(false);
@@ -43,10 +45,8 @@ export function DataIngestionClient() {
   const { toast } = useToast();
 
   useEffect(() => {
-    // Update mergedDataPreview whenever dataFetchedThisSession or selectedClientsToUpload changes
-    // This ensures the preview table reflects what's selected for upload.
     let newPreview: MergedSheetData[] = [];
-    if (Object.keys(dataFetchedThisSession).length > 0) { // Only show preview if something has been fetched
+    if (Object.keys(dataFetchedThisSession).length > 0) {
         selectedClientsToUpload.forEach(clientName => {
             if (dataFetchedThisSession[clientName]) {
             newPreview = newPreview.concat(dataFetchedThisSession[clientName]);
@@ -75,14 +75,12 @@ export function DataIngestionClient() {
       return;
     }
     setIsFetching(true);
-    // Reset data for this session and preview
     setDataFetchedThisSession({});
     setMergedDataPreview([]);
     setSelectedClientsToUpload([]);
 
-
     setSourceStatuses(prevStatuses =>
-      ALL_CLIENT_NAMES.map(clientName => ({ // Reset all statuses based on current selection
+      ALL_CLIENT_NAMES.map(clientName => ({
         client: clientName,
         status: selectedClientsToFetch.includes(clientName) ? 'pending' : 'not-fetched',
         rowCount: 0,
@@ -100,12 +98,10 @@ export function DataIngestionClient() {
         }
       });
       setDataFetchedThisSession(newFetchedData);
-       // Auto-select successfully fetched clients for upload by default
       const successfullyFetchedClients = result.clientResults
         .filter(cr => cr.status === 'success' && (newFetchedData[cr.client]?.length || 0) > 0)
         .map(cr => cr.client);
       setSelectedClientsToUpload(successfullyFetchedClients);
-
 
       const updatedStatuses = ALL_CLIENT_NAMES.map(clientName => {
         const clientResult = result.clientResults.find(cr => cr.client === clientName);
@@ -117,11 +113,9 @@ export function DataIngestionClient() {
             message: clientResult.message
           } as SourceStatus;
         }
-        // If a client was not part of the fetch operation at all (wasn't in selectedClientsToFetch)
         if (!selectedClientsToFetch.includes(clientName)) {
           return { client: clientName, status: 'not-fetched', message: 'Not included in this fetch.', rowCount: 0 } as SourceStatus;
         }
-        // Fallback for unexpected cases, though ideally all selected clients should have a result
         return { client: clientName, status: 'initial', message: 'Status unknown.', rowCount: 0 } as SourceStatus;
       });
       setSourceStatuses(updatedStatuses);
@@ -130,7 +124,6 @@ export function DataIngestionClient() {
       const emptyCount = result.clientResults.filter(r => r.status === 'empty' || (r.status === 'success' && r.rowCount === 0)).length;
       const errorCount = result.clientResults.filter(r => r.status === 'error').length;
       const totalFetchedRecords = Object.values(newFetchedData).reduce((sum, arr) => sum + arr.length, 0);
-
 
       if (errorCount > 0) {
         toast({
@@ -191,24 +184,42 @@ export function DataIngestionClient() {
     }
     setIsUploading(true);
     try {
-      const result = await saveDemandDataAction(dataToUpload);
-      if (result.success) {
+      // Step 1: Save to Firestore
+      const firestoreResult = await saveDemandDataAction(dataToUpload);
+      if (firestoreResult.success) {
         toast({
-          title: 'Upload Successful',
-          description: result.message,
+          title: 'Firestore Upload Successful',
+          description: firestoreResult.message,
         });
+
+        // Step 2: Save to local Dexie DB
+        try {
+          const demandDataToSaveLocally: DemandData[] = dataToUpload.map(item => ({
+            ...item,
+            date: format(parseISO(item.timestamp), 'yyyy-MM-dd') 
+          }));
+          await saveBatchDataToLocalDB(demandDataToSaveLocally);
+          toast({ title: 'Local Cache Updated', description: 'Fetched data also saved to local cache.' });
+        } catch (localSaveError) {
+          console.error('Failed to save data to local Dexie DB:', localSaveError);
+          toast({
+            title: 'Local Cache Update Failed',
+            description: `Data saved to Firestore, but failed to update local cache: ${localSaveError instanceof Error ? localSaveError.message : String(localSaveError)}`,
+            variant: 'destructive',
+          });
+        }
       } else {
         toast({
-          title: 'Upload Failed',
-          description: result.message || 'An unknown error occurred.',
+          title: 'Firestore Upload Failed',
+          description: firestoreResult.message || 'An unknown error occurred.',
           variant: 'destructive',
         });
       }
     } catch (error) {
-      console.error('Failed to upload data:', error);
+      console.error('Failed to upload data to Firestore:', error);
       toast({
         title: 'Upload Error',
-        description: 'Could not upload data. Please try again.',
+        description: 'Could not upload data to Firestore. Please try again.',
         variant: 'destructive',
       });
     } finally {
@@ -231,13 +242,12 @@ export function DataIngestionClient() {
   const isAnyClientSelectedForFetch = selectedClientsToFetch.length > 0;
   const isAnyClientSelectedForUpload = selectedClientsToUpload.length > 0 && Object.keys(dataFetchedThisSession).some(client => selectedClientsToUpload.includes(client as ClientName) && dataFetchedThisSession[client].length > 0) ;
 
-
   return (
     <Card>
       <CardHeader>
         <CardTitle>Ingest Demand Data</CardTitle>
         <CardDescription>
-          Select clients, then "Fetch Selected Clients" to retrieve data. Preview the data below, then select clients and "Upload Selected to System" to save it.
+          Select clients, then "Fetch Selected Clients" to retrieve data. Preview the data below, then select clients and "Upload Selected to System" to save it to cloud and local cache.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -318,7 +328,6 @@ export function DataIngestionClient() {
           </div>
         )}
 
-
         {isFetching && sourceStatuses.some(s => s.status === 'pending') && (
           <div className="flex justify-center items-center py-10">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -382,6 +391,3 @@ export function DataIngestionClient() {
     </Card>
   );
 }
-
-    
-    

@@ -5,7 +5,7 @@ import { collection, writeBatch, doc, getDocs, getDoc, query, where, orderBy, li
 import type { DemandData, MergedSheetData, ClientName, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity } from '@/lib/types';
 import { format, parseISO, isToday, isValid } from 'date-fns';
 
-// Firestore related code (remains largely the same for SSoT operations)
+// Firestore related code
 function getDemandRecordParentId(client: ClientName, city: string, area: string): string {
   const sanitize = (str: string) => str.replace(/[\s/\\.#$[\]]/g, '_');
   return `${sanitize(client)}_${sanitize(city)}_${sanitize(area)}`;
@@ -22,10 +22,8 @@ export async function saveDemandDataToStore(data: MergedSheetData[]): Promise<{ 
 
   for (const item of data) {
     const parentId = getDemandRecordParentId(item.client, item.city, item.area);
-    // Ensure timestamp is valid before parsing
     const itemTimestamp = typeof item.timestamp === 'string' ? item.timestamp : new Date(item.timestamp).toISOString();
     const dateKey = format(parseISO(itemTimestamp), 'yyyy-MM-dd');
-
 
     const parentDocRef = doc(db, 'demandRecords', parentId);
     const parentDocData = { 
@@ -79,7 +77,7 @@ export async function clearAllDemandDataFromStore(): Promise<{ success: boolean;
     
     let totalDailyDocsDeleted = 0;
     let totalParentDocsDeleted = 0;
-    const maxBatchOperations = 490; // Firestore batch limit is 500
+    const maxBatchOperations = 490;
 
     for (const parentDoc of parentDocsSnapshot.docs) {
       const dailyCollectionRef = collection(db, 'demandRecords', parentDoc.id, 'daily');
@@ -102,8 +100,6 @@ export async function clearAllDemandDataFromStore(): Promise<{ success: boolean;
       }
     }
 
-    // Fetch a fresh snapshot because the subcollection deletions might take time to reflect
-    // and we want to ensure we're deleting parents that are now empty or intended to be cleared.
     const freshParentDocsSnapshot = await getDocs(demandRecordsCollectionRef); 
     let parentBatch = writeBatch(db);
     let parentOpsInBatch = 0;
@@ -128,17 +124,11 @@ export async function clearAllDemandDataFromStore(): Promise<{ success: boolean;
   }
 }
 
-
-// Limits for Firestore queries
-const MAX_PARENT_DOCS_FOR_BROAD_QUERY = 150; // For unfiltered dashboard loads
-const MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY = 150; // For filtered dashboard loads
+const MAX_PARENT_DOCS_FOR_BROAD_QUERY = 150; 
+const MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY = 150; 
 const MAX_RESULTS_TO_CLIENT = 500; 
-
-// For analysis type queries that bypass normal limits (e.g., for internal processing or less frequent reports)
-// Reduced from 750 to 400
 const MAX_PARENT_DOCS_FOR_BROAD_ANALYSIS_QUERY = 400;
 const MAX_DAILY_FETCHES_FOR_SPECIFIC_ANALYSIS_QUERY = 400;
-
 
 export async function getDemandDataFromFirestore(filters?: {
   client?: ClientName;
@@ -159,8 +149,6 @@ export async function getDemandDataFromFirestore(filters?: {
   }
   
   let queryLimitForParents: number | undefined = undefined;
-  let processingLimitForParents: number | undefined;
-
   if (isBroadQuery) {
     queryLimitForParents = options?.bypassLimits ? MAX_PARENT_DOCS_FOR_BROAD_ANALYSIS_QUERY : MAX_PARENT_DOCS_FOR_BROAD_QUERY;
   }
@@ -178,16 +166,17 @@ export async function getDemandDataFromFirestore(filters?: {
 
     let docsToProcess = parentDocsSnapshot.docs;
     
-    if (!isBroadQuery) { 
-      const specificQueryProcessingCap = options?.bypassLimits ? MAX_DAILY_FETCHES_FOR_SPECIFIC_ANALYSIS_QUERY : MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY;
-      if (docsToProcess.length > specificQueryProcessingCap) {
-        console.warn(`[getDemandDataFromFirestore] Specific query (client: ${filters?.client}, city: ${filters?.city}) resulted in ${docsToProcess.length} parent entities. Capping processing to ${specificQueryProcessingCap}.`);
-        docsToProcess = docsToProcess.slice(0, specificQueryProcessingCap);
-      }
-    } else if (isBroadQuery && queryLimitForParents && parentDocsSnapshot.docs.length >= queryLimitForParents) {
-        console.warn(`[getDemandDataFromFirestore] Broad query hit the parent document limit of ${queryLimitForParents}. Results may be partial.`);
+    let processingCapForParents: number | undefined;
+    if(!isBroadQuery) {
+        processingCapForParents = options?.bypassLimits ? MAX_DAILY_FETCHES_FOR_SPECIFIC_ANALYSIS_QUERY : MAX_INDIVIDUAL_DAILY_FETCHES_FOR_SPECIFIC_QUERY;
     }
 
+    if (processingCapForParents && docsToProcess.length > processingCapForParents) {
+        console.warn(`[getDemandDataFromFirestore] Specific query (client: ${filters?.client}, city: ${filters?.city}) for date ${targetDate} resulted in ${docsToProcess.length} parent entities. Capping processing to ${processingCapForParents}.`);
+        docsToProcess = docsToProcess.slice(0, processingCapForParents);
+    } else if (isBroadQuery && queryLimitForParents && parentDocsSnapshot.docs.length >= queryLimitForParents) {
+        console.warn(`[getDemandDataFromFirestore] Broad query for date ${targetDate} hit the parent document limit of ${queryLimitForParents}. Results may be partial.`);
+    }
 
     for (const parentDoc of docsToProcess) {
       try {
@@ -198,7 +187,7 @@ export async function getDemandDataFromFirestore(filters?: {
         if (dailyDocSnapshot.exists()) {
           const dailyData = dailyDocSnapshot.data() as { demandScore: number; timestamp: string; sourceSystemId: string };
           demandEntries.push({
-            id: dailyData.sourceSystemId || parentDoc.id + '_' + targetDate, // Fallback ID
+            id: dailyData.sourceSystemId || parentDoc.id + '_' + targetDate,
             client: parentData.client,
             city: parentData.city,
             area: parentData.area,
@@ -209,21 +198,20 @@ export async function getDemandDataFromFirestore(filters?: {
         }
       } catch (dailyFetchError) {
          console.error(`Error fetching daily data for parent ${parentDoc.id} on date ${targetDate}:`, dailyFetchError);
-        // Continue processing other parent documents
       }
     }
     
     demandEntries.sort((a, b) => b.demandScore - a.demandScore);
     
     if (!options?.bypassLimits && demandEntries.length > MAX_RESULTS_TO_CLIENT) {
-        console.warn(`[getDemandDataFromFirestore] Query returned ${demandEntries.length} records, slicing to ${MAX_RESULTS_TO_CLIENT} for client.`);
+        console.warn(`[getDemandDataFromFirestore] Query returned ${demandEntries.length} records, slicing to ${MAX_RESULTS_TO_CLIENT} for client for date ${targetDate}.`);
         return demandEntries.slice(0, MAX_RESULTS_TO_CLIENT);
     }
     return demandEntries;
 
   } catch (error) {
     console.error("Error fetching data from Firestore (getDemandDataFromFirestore):", error);
-    throw error; // Re-throw the error to be caught by the calling action
+    throw error; 
   }
 }
 
@@ -239,9 +227,7 @@ export async function getHistoricalDemandDataFromFirestore(
      parentQueryConstraints.push(where('city', '==', filters.city.trim()));
   }
   
-  // Use analysis query limit for historical data fetches as these are often for broader analysis
   parentQueryConstraints.push(limit(MAX_DAILY_FETCHES_FOR_SPECIFIC_ANALYSIS_QUERY));
-
 
   const finalParentQuery = query(parentCollectionRef, ...parentQueryConstraints);
   const historicalEntries: DemandData[] = [];
@@ -280,12 +266,13 @@ export async function getHistoricalDemandDataFromFirestore(
         });
       } catch (dailyQueryError) {
         console.error(`Error fetching historical daily data for parent ${parentDoc.id} in range ${dateRange.start}-${dateRange.end}:`, dailyQueryError);
-        // Continue processing other parent documents
       }
     }
     
     historicalEntries.sort((a, b) => a.date.localeCompare(b.date) || b.demandScore - a.demandScore);
     
+    // For historical data, if bypassLimits is not an explicit option, apply the standard client limit.
+    // We can assume historical views might benefit from this limit if not specifically asking for more.
     if (historicalEntries.length > MAX_RESULTS_TO_CLIENT) { 
         console.warn(`[getHistoricalDemandDataFromFirestore] Historical query returned ${historicalEntries.length} records, slicing to ${MAX_RESULTS_TO_CLIENT}.`);
         return historicalEntries.slice(0, MAX_RESULTS_TO_CLIENT);
@@ -293,7 +280,7 @@ export async function getHistoricalDemandDataFromFirestore(
     return historicalEntries;
   } catch (error) {
     console.error("Error fetching historical data from Firestore:", error);
-    throw error; // Re-throw
+    throw error; 
   }
 }
 
@@ -307,10 +294,11 @@ export async function getLocalDemandDataForDate(date: string): Promise<LocalDema
   }
 }
 
-// This function is intended to be called from client-side components after fetching data via an action
 export async function saveDemandDataToLocalDB(data: DemandData[]): Promise<void> {
   if (!data || data.length === 0) return;
   try {
+    // This function is now better handled by saveBatchDataToLocalDB or performLocalSyncOperations
+    // For simple bulk puts, ensure data is LocalDemandRecord compatible.
     await localDb.demandRecords.bulkPut(data as LocalDemandRecord[]);
   } catch (error) {
     console.error("Error saving demand data to local DB:", error);
@@ -351,6 +339,39 @@ export async function performLocalSyncOperations(dateToSync: string, dataToSave:
   }
 }
 
+export async function saveBatchDataToLocalDB(data: DemandData[]): Promise<void> {
+  if (!data || data.length === 0) return;
+
+  const dataByDate: Record<string, DemandData[]> = data.reduce((acc, record) => {
+    const dateKey = record.date; 
+    if (!acc[dateKey]) {
+      acc[dateKey] = [];
+    }
+    acc[dateKey].push(record);
+    return acc;
+  }, {} as Record<string, DemandData[]>);
+
+  try {
+    await localDb.transaction('rw', localDb.demandRecords, async () => {
+      for (const dateKey in dataByDate) {
+        console.log(`Local Ingestion Save: Clearing local data for date ${dateKey}`);
+        await localDb.demandRecords.where('date').equals(dateKey).delete();
+        
+        const recordsForDate = dataByDate[dateKey];
+        if (recordsForDate.length > 0) {
+          console.log(`Local Ingestion Save: Saving ${recordsForDate.length} records to local DB for date ${dateKey}`);
+          // Ensure data conforms to LocalDemandRecord, primarily id vs localId
+          const localRecords = recordsForDate.map(d => ({...d})) as LocalDemandRecord[];
+          await localDb.demandRecords.bulkPut(localRecords);
+        }
+      }
+    });
+    console.log(`Local Ingestion Save: Transaction for batch data completed successfully.`);
+  } catch (error) {
+    console.error(`Error during local save transaction for batch data:`, error);
+    throw error;
+  }
+}
 
 export async function clearAllLocalDemandData(): Promise<{success: boolean, message: string}> {
   try {
@@ -378,16 +399,14 @@ export async function getSyncStatus(): Promise<LocalSyncMeta | undefined> {
 export async function updateSyncStatus(timestamp: Date): Promise<void> {
   try {
     await localDb.meta.put({ id: 'lastSyncStatus', timestamp: timestamp.getTime() });
-  } catch (error)
-{
+  } catch (error) {
     console.error("Error updating sync status:", error);
     throw error; 
   }
 }
 
-
-// Summary calculation functions (can operate on data from Firestore or LocalDB)
-export function calculateCityDemandSummary(data: DemandData[]): CityDemand[] {
+// Summary calculation functions
+export function calculateCityDemandSummary(data: DemandData[] | LocalDemandRecord[]): CityDemand[] {
   const cityMap: Record<string, number> = {};
   data.forEach(item => {
     cityMap[item.city] = (cityMap[item.city] || 0) + item.demandScore;
@@ -395,7 +414,7 @@ export function calculateCityDemandSummary(data: DemandData[]): CityDemand[] {
   return Object.entries(cityMap).map(([city, totalDemand]) => ({ city, totalDemand })).sort((a,b) => b.totalDemand - a.totalDemand);
 }
 
-export function calculateClientDemandSummary(data: DemandData[]): ClientDemand[] {
+export function calculateClientDemandSummary(data: DemandData[] | LocalDemandRecord[]): ClientDemand[] {
    const clientMap: Record<string, number> = {};
    data.forEach(item => {
      clientMap[item.client] = (clientMap[item.client] || 0) + item.demandScore;
@@ -403,7 +422,7 @@ export function calculateClientDemandSummary(data: DemandData[]): ClientDemand[]
    return Object.entries(clientMap).map(([client, totalDemand]) => ({ client: client as ClientName, totalDemand })).sort((a,b) => b.totalDemand - a.totalDemand);
 }
 
-export function calculateAreaDemandSummary(data: DemandData[]): AreaDemand[] {
+export function calculateAreaDemandSummary(data: DemandData[] | LocalDemandRecord[]): AreaDemand[] {
   const areaMap: Record<string, { city: string; totalDemand: number; clients: Set<ClientName> }> = {};
   data.forEach(item => {
     const key = `${item.city}-${item.area}`; 
@@ -424,9 +443,9 @@ export function calculateAreaDemandSummary(data: DemandData[]): AreaDemand[] {
 }
 
 export function calculateMultiClientHotspots(
-  data: DemandData[],
+  data: DemandData[] | LocalDemandRecord[],
   minClients: number = 2, 
-  minDemandPerClient: number = 1 // Lowered minDemandPerClient to be more inclusive for testing
+  minDemandPerClient: number = 1
 ): MultiClientHotspotCity[] {
   const cityClientDemand: Record<string, Record<ClientName, number>> = {};
   data.forEach(item => {
