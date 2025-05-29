@@ -5,10 +5,16 @@ import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { triggerManualSyncAction, clearAllLocalDemandDataAction } from '@/lib/actions'; // Added clearAllLocalDemandDataAction
-import { clearAllLocalDemandData, getSyncStatus } from '@/lib/services/demand-data-service'; // Import local service
+import { triggerManualSyncAction, clearAllLocalDemandDataAction, syncLocalDemandDataForDateAction } from '@/lib/actions';
+import { 
+  clearAllLocalDemandData, 
+  getSyncStatus,
+  saveDemandDataToLocalDB,
+  clearDemandDataForDateFromLocalDB,
+  updateSyncStatus
+} from '@/lib/services/demand-data-service'; 
 import type { LocalSyncMeta } from '@/lib/types';
-import { Loader2, RefreshCw, Database, FileText, CheckCircle, XCircle, Info, Trash2, History } from 'lucide-react';
+import { Loader2, RefreshCw, Database, FileText, CheckCircle, XCircle, Info, Trash2, DownloadCloud } from 'lucide-react'; // Added DownloadCloud
 import { format, isValid } from 'date-fns';
 import { useLiveQuery } from 'dexie-react-hooks';
 
@@ -23,9 +29,9 @@ export function AdminPanelClient() {
   const [isSyncingFirestore, setIsSyncingFirestore] = useState(false);
   const [lastFirestoreSyncInfo, setLastFirestoreSyncInfo] = useState<LastSyncInfo | null>(null);
   const [isClearingLocal, setIsClearingLocal] = useState(false);
+  const [isSyncingTodayToLocal, setIsSyncingTodayToLocal] = useState(false); // New state for local sync
   const { toast } = useToast();
 
-  // Live query for local sync status
   const localSyncMeta = useLiveQuery(
     () => getSyncStatus(),
     [],
@@ -50,7 +56,7 @@ export function AdminPanelClient() {
     setIsSyncingFirestore(true);
     setLastFirestoreSyncInfo(null); 
     try {
-      const result = await triggerManualSyncAction(); // This syncs Sheets to Firestore
+      const result = await triggerManualSyncAction(); 
       const currentSyncInfo = {
         timestamp: new Date(),
         message: result.message,
@@ -83,14 +89,12 @@ export function AdminPanelClient() {
     setIsClearingLocal(true);
     toast({title: "Clearing Local Data...", description: "Attempting to remove all cached demand data."});
     try {
-      // Call the service function directly, as it operates on the client's IndexedDB
       const result = await clearAllLocalDemandData(); 
       if (result.success) {
         toast({ title: "Local Data Cleared", description: result.message });
       } else {
         toast({ title: "Failed to Clear Local Data", description: result.message, variant: "destructive" });
       }
-      // The useLiveQuery for localSyncMeta should update automatically.
     } catch (error) {
       console.error("Error clearing local data:", error);
       toast({ title: "Error", description: "Could not clear local data.", variant: "destructive"});
@@ -98,6 +102,29 @@ export function AdminPanelClient() {
       setIsClearingLocal(false);
     }
   };
+
+  const handleSyncTodayToLocalDB = async () => {
+    setIsSyncingTodayToLocal(true);
+    const todayDateString = format(new Date(), 'yyyy-MM-dd');
+    toast({ title: "Syncing Today's Data to Local Cache...", description: `Fetching latest data for ${todayDateString} from cloud.` });
+    try {
+      const result = await syncLocalDemandDataForDateAction(todayDateString); // Fetches ALL data for today
+      if (result.success) {
+        await clearDemandDataForDateFromLocalDB(todayDateString); // Clear today's data before saving new
+        await saveDemandDataToLocalDB(result.data);
+        await updateSyncStatus(new Date()); // Update overall sync status to now
+        toast({ title: "Local Sync Successful", description: `${result.data.length} records for ${todayDateString} saved to local cache.` });
+      } else {
+        toast({ title: "Local Sync Failed", description: result.message || "Could not sync today's data from cloud.", variant: "destructive" });
+      }
+    } catch (error) {
+      console.error("Failed to sync today's data to local DB:", error);
+      toast({ title: "Local Sync Error", description: "An unexpected error occurred during local sync.", variant: "destructive"});
+    } finally {
+      setIsSyncingTodayToLocal(false);
+    }
+  };
+
 
   return (
     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -107,7 +134,7 @@ export function AdminPanelClient() {
           <CardDescription>Trigger sync from Google Sheets to Firestore (Cloud Database).</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Button onClick={handleManualFirestoreSync} disabled={isSyncingFirestore} className="w-full">
+          <Button onClick={handleManualFirestoreSync} disabled={isSyncingFirestore || isSyncingTodayToLocal} className="w-full">
             {isSyncingFirestore ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
             Sync Sheets to Firestore
           </Button>
@@ -141,12 +168,16 @@ export function AdminPanelClient() {
                 Last Synced to Local: {lastLocalSyncDate && isValid(lastLocalSyncDate) ? format(lastLocalSyncDate, "PPP p") : 'Never'}
              </p>
            </div>
-          <Button onClick={handleClearLocalData} variant="outline" disabled={isClearingLocal} className="w-full">
+          <Button onClick={handleSyncTodayToLocalDB} variant="outline" disabled={isSyncingTodayToLocal || isSyncingFirestore} className="w-full">
+            {isSyncingTodayToLocal ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DownloadCloud className="mr-2 h-4 w-4" />}
+            Sync Today from Cloud to Local
+          </Button>
+          <Button onClick={handleClearLocalData} variant="destructive" disabled={isClearingLocal || isSyncingTodayToLocal} className="w-full">
             {isClearingLocal ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
             Clear All Local Data
           </Button>
         </CardContent>
-        <CardFooter><p className="text-xs text-muted-foreground">Clears data cached in your browser. Does not affect cloud data.</p></CardFooter>
+        <CardFooter><p className="text-xs text-muted-foreground">Manages data cached in your browser. Does not affect cloud data.</p></CardFooter>
       </Card>
 
       <Card>
