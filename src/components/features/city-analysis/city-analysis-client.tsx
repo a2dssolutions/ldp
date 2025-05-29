@@ -1,12 +1,13 @@
 
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
@@ -18,13 +19,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { CityClientMatrixRow, ClientName, DemandData } from '@/lib/types';
+import type { CityClientMatrixRow, ClientName, LocalDemandRecord } from '@/lib/types';
 import { ALL_CLIENT_NAMES } from '@/lib/types';
 import { getLocalDemandDataForDate } from '@/lib/services/demand-data-service';
+import { getAppSettingsAction } from '@/lib/actions';
+import type { AppSettings } from '@/lib/services/config-service';
 import { useToast } from '@/hooks/use-toast';
 import { format, isValid, parseISO } from 'date-fns';
-import { Loader2, Search, CheckCircle2, XCircle, ArrowUp, ArrowDown, Filter, List, Columns } from 'lucide-react';
-import type { LocalDemandRecord } from '@/lib/dexie';
+import { Loader2, Search, CheckCircle2, XCircle, ArrowUp, ArrowDown, Filter, ListFilter } from 'lucide-react';
 
 interface CityAnalysisClientProps {
   initialSelectedDate: string;
@@ -46,13 +48,32 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
   const [citySearchTerm, setCitySearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'activeSelectedClientCount', direction: 'desc' });
   const [selectedActiveClientCounts, setSelectedActiveClientCounts] = useState<number[]>([]);
+  
+  const [showBlacklistedCities, setShowBlacklistedCities] = useState(false);
+  const [blacklistedCitiesList, setBlacklistedCitiesList] = useState<string[]>([]);
+  const [isLoadingSettings, setIsLoadingSettings] = useState(true);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      setIsLoadingSettings(true);
+      try {
+        const settings = await getAppSettingsAction();
+        setBlacklistedCitiesList(settings.blacklistedCities || []);
+      } catch (error) {
+        console.error("Failed to fetch app settings for city analysis:", error);
+        toast({ title: "Error", description: "Could not load blacklist settings.", variant: "destructive" });
+      } finally {
+        setIsLoadingSettings(false);
+      }
+    };
+    fetchSettings();
+  }, [toast]);
 
 
   const handleDateChange = (date: Date | undefined) => {
     if (date && isValid(date)) {
       setSelectedDate_(date);
     } else {
-      // Fallback to a valid date if undefined or invalid, to prevent errors
       setSelectedDate_(new Date(initialSelectedDate));
       toast({ title: "Invalid Date", description: "Please select a valid date.", variant: "destructive" });
     }
@@ -70,82 +91,64 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
     );
   };
 
-  const processDataForReport = (localData: LocalDemandRecord[], clientsForAnalysis: ClientName[]): CityClientMatrixRow[] => {
-    if (!localData || localData.length === 0) {
-      return [];
-    }
+  const processDataForReport = useCallback((localData: LocalDemandRecord[], clientsForAnalysis: ClientName[]): CityClientMatrixRow[] => {
+    if (!localData || localData.length === 0) return [];
 
-    // Filter localData to only include records from the clients selected for analysis
-    const filteredDataBySelectedPrimaryClients = localData.filter(record => clientsForAnalysis.includes(record.client));
-
-    if (filteredDataBySelectedPrimaryClients.length === 0 && localData.length > 0) {
+    const filteredDataBySelectedPrimaryClients = localData.filter(record => 
+        clientsForAnalysis.includes(record.client) && 
+        record.city && record.area && typeof record.demandScore === 'number'
+    );
+    
+    if (clientsForAnalysis.length > 0 && filteredDataBySelectedPrimaryClients.length === 0 && localData.length > 0) {
         toast({ title: "No Data for Selected Clients", description: "No demand data found for the currently selected primary clients on this date." });
         return [];
     }
-    if (filteredDataBySelectedPrimaryClients.length === 0 && localData.length === 0) {
-        // This case should be handled by the outer check for localData.length
-        return [];
-    }
+    if (filteredDataBySelectedPrimaryClients.length === 0) return [];
 
-    // Group all records by city
-    const demandByCity: Record<string, LocalDemandRecord[]> = {};
-    for (const record of filteredDataBySelectedPrimaryClients) { // Use data already filtered by primary clients
-      if (!record.city) continue;
-      if (!demandByCity[record.city]) {
-        demandByCity[record.city] = [];
-      }
-      demandByCity[record.city].push(record);
+    const demandByCity: Record<string, Record<ClientName, LocalDemandRecord[]>> = {};
+    for (const record of filteredDataBySelectedPrimaryClients) {
+      if (!demandByCity[record.city]) demandByCity[record.city] = {} as Record<ClientName, LocalDemandRecord[]>;
+      if (!demandByCity[record.city][record.client]) demandByCity[record.city][record.client] = [];
+      demandByCity[record.city][record.client].push(record);
     }
 
     const resultMatrix: CityClientMatrixRow[] = [];
-
     for (const cityName in demandByCity) {
-      const recordsInCity = demandByCity[cityName]; // These are already filtered for the primary selected clients
+      const clientDataInCity = demandByCity[cityName];
       const clientPresenceFlags: Partial<Record<ClientName, boolean>> = {};
       const clientTopAreaDetails: string[] = [];
       let activeSelectedClientCountForThisCity = 0;
 
-      // Iterate through the *primary selected clients* to build the report row
       for (const selectedClient of clientsForAnalysis) {
-        const recordsForThisClientInThisCity = recordsInCity.filter(r => r.client === selectedClient);
+        const recordsForThisClientInThisCity = clientDataInCity[selectedClient] || [];
+        clientPresenceFlags[selectedClient] = recordsForThisClientInThisCity.length > 0;
 
         if (recordsForThisClientInThisCity.length > 0) {
-          clientPresenceFlags[selectedClient] = true;
           activeSelectedClientCountForThisCity++;
-
           let topAreaForClient = '';
           let maxDemandForClient = -1;
 
-          // Aggregate demand by area for *this specific client* in *this city*
           const areasForClientInCity: Record<string, number> = {};
           recordsForThisClientInThisCity.forEach(rec => {
-            if (rec.area && typeof rec.demandScore === 'number') {
-              areasForClientInCity[rec.area] = (areasForClientInCity[rec.area] || 0) + rec.demandScore;
-            }
+            areasForClientInCity[rec.area] = (areasForClientInCity[rec.area] || 0) + rec.demandScore;
           });
 
-          // Find the top area for this client in this city
           for (const areaName in areasForClientInCity) {
             if (areasForClientInCity[areaName] > maxDemandForClient) {
               maxDemandForClient = areasForClientInCity[areaName];
               topAreaForClient = areaName;
             } else if (areasForClientInCity[areaName] === maxDemandForClient) {
-              // Simple tie-breaking: choose the alphabetically first area name
               if (areaName.localeCompare(topAreaForClient) < 0) {
                 topAreaForClient = areaName;
               }
             }
           }
-
-          if (topAreaForClient && maxDemandForClient > -1) {
+          if (topAreaForClient) {
             clientTopAreaDetails.push(`${selectedClient}: ${topAreaForClient} (${maxDemandForClient})`);
           }
-        } else {
-          clientPresenceFlags[selectedClient] = false;
         }
       }
       
-      // Sort the clientTopAreaDetails by client name for consistent order in the "High Demand Areas" column
       clientTopAreaDetails.sort((a, b) => a.localeCompare(b));
 
       resultMatrix.push({
@@ -159,10 +162,10 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
       });
     }
     return resultMatrix;
-  };
+  }, [toast]);
 
 
-  const handleGenerateReport = async () => {
+  const handleGenerateReport = useCallback(async () => {
     if (!selectedDate || !isValid(selectedDate)) {
       toast({ title: "Date Required", description: "Please select a valid date to generate the report.", variant: "destructive" });
       return;
@@ -175,7 +178,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
 
     setIsLoading(true);
     setReportData([]);
-    setSelectedActiveClientCounts([]); // Reset active count filter when primary clients or date changes
+    // setSelectedActiveClientCounts([]); // Reset active count filter only if primary clients or date change significantly
     try {
       const dateString = format(selectedDate, 'yyyy-MM-dd');
       const localData = await getLocalDemandDataForDate(dateString);
@@ -190,13 +193,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
       const processedReport = processDataForReport(localData, primarySelectedClients);
       setReportData(processedReport);
 
-      if (processedReport.length === 0 && localData.length > 0 && primarySelectedClients.length > 0) {
-        // This specific toast is handled within processDataForReport if no data for selected clients
-      } else if (processedReport.length === 0 && primarySelectedClients.length > 0) {
-        // Also implies no local data for the date, or no data for selected clients.
-        // The more specific "No Local Data" or "No Data for Selected Clients" toasts will have fired.
-      }
-      else if (processedReport.length > 0) {
+      if (processedReport.length > 0) {
         toast({ title: "Report Generated", description: `Analyzed ${processedReport.length} cities for ${dateString} from local data.` });
       }
     } catch (error) {
@@ -206,36 +203,39 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [selectedDate, primarySelectedClients, processDataForReport, toast]);
 
   useEffect(() => {
-    if (selectedDate && isValid(selectedDate) && primarySelectedClients.length > 0) {
+    if (selectedDate && isValid(selectedDate) && primarySelectedClients.length > 0 && !isLoadingSettings) {
       handleGenerateReport();
     } else if (primarySelectedClients.length === 0) {
         setReportData([]);
-        setSelectedActiveClientCounts([]); // Clear filters if no primary clients are selected
+        setSelectedActiveClientCounts([]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate, primarySelectedClients]); // Auto-generate report when date or primary clients change
+  }, [selectedDate, primarySelectedClients, handleGenerateReport, isLoadingSettings]); // Added isLoadingSettings
 
   const handleSort = (key: SortKey) => {
     setSortConfig(prevConfig => {
       if (prevConfig.key === key) {
         return { key, direction: prevConfig.direction === 'asc' ? 'desc' : 'asc' };
       }
-      // Default sort direction for new column: 'desc' for count, 'asc' for text
       return { key, direction: key === 'activeSelectedClientCount' ? 'desc' : 'asc' };
     });
   };
 
   const uniqueActiveCountsForFilter = useMemo(() => {
-    // Derives filter options from the currently processed reportData (before search term or active count filtering)
     const counts = new Set(reportData.map(row => row.activeSelectedClientCount));
     return Array.from(counts).sort((a, b) => a - b);
   }, [reportData]);
 
   const sortedAndFilteredReportData = useMemo(() => {
     let dataToDisplay = [...reportData];
+
+    if (!showBlacklistedCities && blacklistedCitiesList.length > 0) {
+      const lowercasedBlacklist = blacklistedCitiesList.map(city => city.toLowerCase());
+      dataToDisplay = dataToDisplay.filter(row => !lowercasedBlacklist.includes(row.city.toLowerCase()));
+    }
 
     if (citySearchTerm) {
       dataToDisplay = dataToDisplay.filter(row =>
@@ -253,10 +253,6 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
       dataToDisplay.sort((a, b) => {
         let valA = a[sortConfig.key];
         let valB = b[sortConfig.key];
-
-        // Handle null or undefined values by pushing them to the end for asc, start for desc
-        if (valA == null) valA = sortConfig.direction === 'asc' ? Infinity : -Infinity;
-        if (valB == null) valB = sortConfig.direction === 'asc' ? Infinity : -Infinity;
         
         let comparison = 0;
         if (typeof valA === 'string' && typeof valB === 'string') {
@@ -265,25 +261,20 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
           comparison = valA - valB;
         }
 
-        // Secondary sort by city name if primary sort key values are equal
         if (comparison === 0 && sortConfig.key !== 'city') {
           comparison = a.city.localeCompare(b.city);
         }
-
-
         return sortConfig.direction === 'asc' ? comparison : comparison * -1;
       });
     } else {
-      // Default sort if sortConfig.key is not set (should not happen with initial state)
-      // but as a fallback: sort by activeSelectedClientCount (desc) then city (asc)
       dataToDisplay.sort((a, b) => {
-        const countComparison = (b.activeSelectedClientCount ?? 0) - (a.activeSelectedClientCount ?? 0);
+        const countComparison = b.activeSelectedClientCount - a.activeSelectedClientCount;
         if (countComparison !== 0) return countComparison;
         return a.city.localeCompare(b.city);
       });
     }
     return dataToDisplay;
-  }, [reportData, citySearchTerm, sortConfig, selectedActiveClientCounts]);
+  }, [reportData, citySearchTerm, sortConfig, selectedActiveClientCounts, showBlacklistedCities, blacklistedCitiesList]);
 
   const SortIndicator = ({ columnKey }: { columnKey: SortKey }) => {
     if (sortConfig.key !== columnKey) return null;
@@ -298,12 +289,12 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
           <CardDescription className="text-sm text-muted-foreground">Select date and primary clients to analyze from local data.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
             <div>
               <Label htmlFor="report-date">Date</Label>
-              <DatePicker id="report-date" date={selectedDate} onDateChange={handleDateChange} disabled={isLoading} />
+              <DatePicker id="report-date" date={selectedDate} onDateChange={handleDateChange} disabled={isLoading || isLoadingSettings} />
             </div>
-            <div>
+            <div className="lg:col-span-2">
               <Label>Primary Clients for Analysis</Label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2 border rounded-md">
                 {ALL_CLIENT_NAMES.map(client => (
@@ -312,7 +303,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
                       id={`client-${client}`}
                       checked={primarySelectedClients.includes(client)}
                       onCheckedChange={(checked) => handlePrimaryClientSelectionChange(client, !!checked)}
-                      disabled={isLoading}
+                      disabled={isLoading || isLoadingSettings}
                     />
                     <Label htmlFor={`client-${client}`} className="text-sm font-normal">
                       {client}
@@ -321,22 +312,33 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
                 ))}
               </div>
             </div>
+             <div className="flex items-center space-x-2">
+              <Switch
+                id="show-blacklisted-cities"
+                checked={showBlacklistedCities}
+                onCheckedChange={setShowBlacklistedCities}
+                disabled={isLoading || isLoadingSettings}
+              />
+              <Label htmlFor="show-blacklisted-cities" className="text-sm">Show Blacklisted Cities</Label>
+            </div>
           </div>
-           <Button onClick={handleGenerateReport} disabled={isLoading || primarySelectedClients.length === 0} className="w-full sm:w-auto mt-4">
-            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
-            Generate Report
+           <Button onClick={handleGenerateReport} disabled={isLoading || primarySelectedClients.length === 0 || isLoadingSettings} className="w-full sm:w-auto mt-4">
+            {isLoading || isLoadingSettings ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
+            {isLoadingSettings ? 'Loading Settings...' : 'Generate Report'}
           </Button>
         </CardContent>
       </Card>
 
-      {isLoading && (
+      {(isLoading || isLoadingSettings) && (
         <div className="flex justify-center items-center py-10">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="ml-2 text-sm text-muted-foreground">Generating report from local data...</p>
+          <p className="ml-2 text-sm text-muted-foreground">
+            {isLoadingSettings ? 'Loading settings...' : 'Generating report from local data...'}
+          </p>
         </div>
       )}
 
-      {!isLoading && reportData.length > 0 && (
+      {!isLoading && !isLoadingSettings && reportData.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-xl font-semibold">City Client Activity &amp; Top Demand Areas</CardTitle>
@@ -373,7 +375,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="sm" className="h-6 w-6 p-0" disabled={uniqueActiveCountsForFilter.length === 0}>
-                              <Filter className="h-4 w-4" />
+                              <ListFilter className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="start">
@@ -418,7 +420,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
                       return (
                         <TableRow key={row.city}>
                           <TableCell className="font-medium">{row.city ?? 'N/A'}</TableCell>
-                          <TableCell className="text-center">{row.activeSelectedClientCount ?? 0}</TableCell>
+                          <TableCell className="text-center">{row.activeSelectedClientCount}</TableCell>
                           {primarySelectedClients.includes('Blinkit') && (
                             <TableCell className="text-center">
                               {row.blinkit ? <CheckCircle2 className="h-5 w-5 text-green-500 inline-block" /> : <XCircle className="h-5 w-5 text-red-500 inline-block" />}
@@ -446,7 +448,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
                 </TableBody>
               </Table>
             </ScrollArea>
-             {sortedAndFilteredReportData.length === 0 && (citySearchTerm || selectedActiveClientCounts.length > 0) && (
+             {sortedAndFilteredReportData.length === 0 && (citySearchTerm || selectedActiveClientCounts.length > 0 || (!showBlacklistedCities && blacklistedCitiesList.length > 0 && reportData.length > 0) ) && (
               <p className="text-center text-sm text-muted-foreground py-4">
                 No cities match your current filter criteria.
               </p>
@@ -455,7 +457,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
         </Card>
       )}
 
-      {!isLoading && reportData.length === 0 && primarySelectedClients.length > 0 && (
+      {!isLoading && !isLoadingSettings && reportData.length === 0 && primarySelectedClients.length > 0 && (
         <Card className="mt-6">
           <CardContent className="pt-6">
             <p className="text-center text-sm text-muted-foreground">
@@ -465,7 +467,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
           </CardContent>
         </Card>
       )}
-      {!isLoading && primarySelectedClients.length === 0 && (
+      {!isLoading && !isLoadingSettings && primarySelectedClients.length === 0 && (
          <Card className="mt-6">
           <CardContent className="pt-6">
             <p className="text-center text-sm text-muted-foreground">
@@ -477,3 +479,4 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
     </div>
   );
 }
+

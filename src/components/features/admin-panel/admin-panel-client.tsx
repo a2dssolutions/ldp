@@ -4,19 +4,27 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { triggerManualSyncAction, syncLocalDemandDataForDateAction } from '@/lib/actions';
+import { triggerManualSyncAction, syncLocalDemandDataForDateAction, saveAppSettingsAction, getAppSettingsAction } from '@/lib/actions';
 import {
   getSyncStatus,
   performLocalSyncOperations,
   clearAllLocalDemandData,
-  getTotalLocalRecordsCount // Import new service function
+  getTotalLocalRecordsCount 
 } from '@/lib/services/demand-data-service';
+import type { AppSettings } from '@/lib/services/config-service';
 import type { LocalSyncMeta } from '@/lib/types';
-import { Loader2, RefreshCw, Database, FileText, CheckCircle, XCircle, Info, Trash2, DownloadCloud } from 'lucide-react';
+import { Loader2, RefreshCw, Database, FileText, CheckCircle, XCircle, Info, Trash2, DownloadCloud, PlusCircle, ListFilter } from 'lucide-react';
 import { format, isValid } from 'date-fns';
 import { useLiveQuery } from 'dexie-react-hooks';
 
+
+interface AdminPanelClientProps {
+  initialSettings: AppSettings;
+}
 
 interface LastSyncInfo {
   timestamp: Date | null;
@@ -24,12 +32,17 @@ interface LastSyncInfo {
   success: boolean;
 }
 
-export function AdminPanelClient() {
+export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
   const [isSyncingFirestore, setIsSyncingFirestore] = useState(false);
   const [lastFirestoreSyncInfo, setLastFirestoreSyncInfo] = useState<LastSyncInfo | null>(null);
   const [isClearingLocal, setIsClearingLocal] = useState(false);
   const [isSyncingTodayToLocal, setIsSyncingTodayToLocal] = useState(false);
   const { toast } = useToast();
+
+  const [currentSettings, setCurrentSettings] = useState<AppSettings>(initialSettings);
+  const [newBlacklistedCity, setNewBlacklistedCity] = useState('');
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+
 
   const localSyncMeta = useLiveQuery(
     () => getSyncStatus(),
@@ -40,7 +53,7 @@ export function AdminPanelClient() {
   const totalLocalRecords = useLiveQuery(
     () => getTotalLocalRecordsCount(),
     [],
-    0 // Default value
+    0 
   );
 
   const lastLocalSyncDate = useMemo(() => {
@@ -55,7 +68,9 @@ export function AdminPanelClient() {
       if (parsedInfo.timestamp) parsedInfo.timestamp = new Date(parsedInfo.timestamp);
       setLastFirestoreSyncInfo(parsedInfo);
     }
-  }, []);
+    // Update currentSettings if initialSettings prop changes (e.g., after a save from another component/tab)
+    setCurrentSettings(initialSettings);
+  }, [initialSettings]);
 
   const handleManualFirestoreSync = async () => {
     setIsSyncingFirestore(true);
@@ -114,10 +129,8 @@ export function AdminPanelClient() {
     const todayDateString = format(new Date(), 'yyyy-MM-dd');
     toast({ title: "Syncing Today's Data to Local Cache...", description: `Fetching latest data for ${todayDateString} from cloud.` });
     try {
-      // Fetch all data for today from Firestore, bypassing normal dashboard limits
       const result = await syncLocalDemandDataForDateAction(todayDateString);
       if (result.success) {
-        // This function now handles the transaction of clearing old, saving new, and updating meta
         await performLocalSyncOperations(todayDateString, result.data);
         toast({ title: "Local Sync Successful", description: `${result.data.length} records for ${todayDateString} saved to local cache.` });
       } else {
@@ -132,6 +145,44 @@ export function AdminPanelClient() {
     }
   };
 
+  const handleAddBlacklistedCity = async () => {
+    const cityToAdd = newBlacklistedCity.trim();
+    if (!cityToAdd) {
+      toast({ title: "Cannot add empty city", variant: "destructive" });
+      return;
+    }
+    if (currentSettings.blacklistedCities.map(c => c.toLowerCase()).includes(cityToAdd.toLowerCase())) {
+      toast({ title: "City already blacklisted", description: `${cityToAdd} is already in the list.`, variant: "default" });
+      setNewBlacklistedCity('');
+      return;
+    }
+
+    setIsSavingSettings(true);
+    const updatedBlacklist = [...currentSettings.blacklistedCities, cityToAdd];
+    const result = await saveAppSettingsAction({ ...currentSettings, blacklistedCities: updatedBlacklist });
+    if (result.success) {
+      setCurrentSettings(prev => ({ ...prev, blacklistedCities: updatedBlacklist }));
+      setNewBlacklistedCity('');
+      toast({ title: "Blacklist Updated", description: `${cityToAdd} added to blacklist.` });
+    } else {
+      toast({ title: "Error Updating Blacklist", description: result.message, variant: "destructive" });
+    }
+    setIsSavingSettings(false);
+  };
+
+  const handleRemoveBlacklistedCity = async (cityToRemove: string) => {
+    setIsSavingSettings(true);
+    const updatedBlacklist = currentSettings.blacklistedCities.filter(city => city !== cityToRemove);
+    const result = await saveAppSettingsAction({ ...currentSettings, blacklistedCities: updatedBlacklist });
+    if (result.success) {
+      setCurrentSettings(prev => ({ ...prev, blacklistedCities: updatedBlacklist }));
+      toast({ title: "Blacklist Updated", description: `${cityToRemove} removed from blacklist.` });
+    } else {
+      toast({ title: "Error Updating Blacklist", description: result.message, variant: "destructive" });
+    }
+    setIsSavingSettings(false);
+  };
+
 
   return (
     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -141,7 +192,7 @@ export function AdminPanelClient() {
           <CardDescription>Trigger sync from Google Sheets to Firestore (Cloud Database).</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Button onClick={handleManualFirestoreSync} disabled={isSyncingFirestore || isSyncingTodayToLocal} className="w-full">
+          <Button onClick={handleManualFirestoreSync} disabled={isSyncingFirestore || isSyncingTodayToLocal || isSavingSettings} className="w-full">
             {isSyncingFirestore ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
             Sync Sheets to Firestore
           </Button>
@@ -178,11 +229,11 @@ export function AdminPanelClient() {
               Total Records in Local Cache: {totalLocalRecords ?? 'Loading...'}
             </p>
           </div>
-          <Button onClick={handleSyncTodayToLocalDB} variant="outline" disabled={isSyncingTodayToLocal || isSyncingFirestore} className="w-full">
+          <Button onClick={handleSyncTodayToLocalDB} variant="outline" disabled={isSyncingTodayToLocal || isSyncingFirestore || isSavingSettings} className="w-full">
             {isSyncingTodayToLocal ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DownloadCloud className="mr-2 h-4 w-4" />}
             Sync Today from Cloud to Local
           </Button>
-          <Button onClick={handleClearLocalData} variant="destructive" disabled={isClearingLocal || isSyncingTodayToLocal || isSyncingFirestore} className="w-full">
+          <Button onClick={handleClearLocalData} variant="destructive" disabled={isClearingLocal || isSyncingTodayToLocal || isSyncingFirestore || isSavingSettings} className="w-full">
             {isClearingLocal ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
             Clear All Local Data
           </Button>
@@ -190,6 +241,53 @@ export function AdminPanelClient() {
         <CardFooter><p className="text-xs text-muted-foreground">Manages data cached in your browser. Does not affect cloud data.</p></CardFooter>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><ListFilter className="h-5 w-5 text-primary" /> Manage Blacklisted Cities</CardTitle>
+          <CardDescription>Cities in this list can be optionally hidden in the City Analysis report.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex space-x-2">
+            <Input
+              type="text"
+              placeholder="Enter city name to blacklist"
+              value={newBlacklistedCity}
+              onChange={(e) => setNewBlacklistedCity(e.target.value)}
+              disabled={isSavingSettings}
+            />
+            <Button onClick={handleAddBlacklistedCity} disabled={isSavingSettings || !newBlacklistedCity.trim()}>
+              {isSavingSettings && !newBlacklistedCity.trim() ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />}
+              Add
+            </Button>
+          </div>
+          {currentSettings.blacklistedCities.length > 0 ? (
+            <ScrollArea className="h-40 w-full rounded-md border p-2">
+              <ul className="space-y-1">
+                {currentSettings.blacklistedCities.map((city) => (
+                  <li key={city} className="flex justify-between items-center p-1.5 text-sm bg-muted/30 rounded">
+                    <span>{city}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={() => handleRemoveBlacklistedCity(city)}
+                      disabled={isSavingSettings}
+                      aria-label={`Remove ${city} from blacklist`}
+                    >
+                      <XCircle className="h-4 w-4 text-destructive hover:text-destructive/80" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </ScrollArea>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-2">No cities are currently blacklisted.</p>
+          )}
+        </CardContent>
+        <CardFooter><p className="text-xs text-muted-foreground">Blacklist is stored in Firestore and affects all users.</p></CardFooter>
+      </Card>
+
+       {/* Placeholder for System Logs Card, can be expanded later */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5 text-primary" /> System Logs</CardTitle>

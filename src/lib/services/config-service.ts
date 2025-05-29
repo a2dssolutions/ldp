@@ -12,6 +12,7 @@ export interface AppSettings {
   sheetUrls: Record<ClientName, string>;
   theme: 'light' | 'dark';
   defaultDateRange: string; // e.g., 'today', 'yesterday'
+  blacklistedCities: string[];
 }
 
 // Define default settings, especially sheet URLs which might be initially hardcoded
@@ -27,6 +28,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   sheetUrls: DEFAULT_SHEET_URLS,
   theme: 'light',
   defaultDateRange: 'today',
+  blacklistedCities: [],
 };
 
 export async function getAppSettings(): Promise<AppSettings> {
@@ -41,6 +43,7 @@ export async function getAppSettings(): Promise<AppSettings> {
         sheetUrls: { ...DEFAULT_SHEET_URLS, ...data.sheetUrls },
         theme: data.theme || DEFAULT_SETTINGS.theme,
         defaultDateRange: data.defaultDateRange || DEFAULT_SETTINGS.defaultDateRange,
+        blacklistedCities: Array.isArray(data.blacklistedCities) ? data.blacklistedCities : DEFAULT_SETTINGS.blacklistedCities,
       };
     } else {
       console.log('No app settings found in Firestore, returning default settings and attempting to save them.');
@@ -58,15 +61,14 @@ export async function getAppSettings(): Promise<AppSettings> {
 export async function saveAppSettings(settings: Partial<AppSettings>): Promise<{ success: boolean; message: string }> {
   try {
     const docRef = doc(db, CONFIG_COLLECTION, APP_SETTINGS_DOC_ID);
-    // Use updateDoc to only change specified fields, or setDoc with { merge: true }
-    // If saving the whole object and ensuring all fields are present:
-    const currentSettings = await getAppSettings(); // Fetch current to merge, or assume 'settings' has all necessary fields
+    const currentSettings = await getAppSettings(); 
     const newSettings = { ...currentSettings, ...settings };
 
-    await setDoc(docRef, newSettings, { merge: true }); // merge: true is important if settings is partial
+    await setDoc(docRef, newSettings, { merge: true }); 
     return { success: true, message: 'Application settings saved successfully.' };
   } catch (error) {
     console.error("Error saving app settings to Firestore:", error);
     return { success: false, message: `Failed to save settings: ${error instanceof Error ? error.message : String(error)}` };
   }
 }
+
