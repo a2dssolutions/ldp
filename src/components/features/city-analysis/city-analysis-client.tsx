@@ -19,7 +19,7 @@ interface CityAnalysisClientProps {
 }
 
 export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientProps) {
-  const [selectedDate, setSelectedDate]_ = useState<Date>(new Date(initialSelectedDate));
+  const [selectedDate, setSelectedDate_] = useState<Date>(new Date(initialSelectedDate));
   const [reportData, setReportData] = useState<CityClientMatrixRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
@@ -53,18 +53,18 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
     } catch (error) {
       console.error('Failed to generate city analysis report:', error);
       toast({ title: 'Error Generating Report', description: error instanceof Error ? error.message : 'Could not generate report.', variant: 'destructive' });
+      setReportData([]); // Ensure reportData is an empty array on error
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Automatically generate report when date changes (optional, or keep manual button)
    useEffect(() => {
      if (selectedDate && isValid(selectedDate)) {
        handleGenerateReport();
      }
    // eslint-disable-next-line react-hooks/exhaustive-deps
-   }, [selectedDate]); // Trigger report generation when selectedDate changes
+   }, [selectedDate]);
 
 
   return (
@@ -77,7 +77,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
         <CardContent className="flex flex-col sm:flex-row gap-4 items-end">
           <div className="w-full sm:w-auto">
             <Label htmlFor="report-date">Date</Label>
-            <DatePicker id="report-date" date={selectedDate} onDateChange={handleDateChange} />
+            <DatePicker id="report-date" date={selectedDate} onDateChange={handleDateChange} disabled={isLoading} />
           </div>
           <Button onClick={handleGenerateReport} disabled={isLoading} className="w-full sm:w-auto">
             {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
@@ -98,7 +98,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
           <CardHeader>
             <CardTitle className="text-xl font-semibold">City Client Activity &amp; Top Demand Areas</CardTitle>
             <CardDescription className="text-sm text-muted-foreground">
-              Report for {format(selectedDate, 'PPP')}. Y/N indicates client presence. Top 3 areas by total demand.
+              Report for {selectedDate && isValid(selectedDate) ? format(selectedDate, 'PPP') : 'selected date'}. Y/N indicates client presence. Top 3 areas by total demand.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -115,9 +115,11 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {reportData.map((row) => (
-                    <TableRow key={row.city}>
-                      <TableCell className="font-medium">{row.city}</TableCell>
+                  {reportData
+                    .filter(row => row && typeof row === 'object' && row.city) // Defensive filter
+                    .map((row) => (
+                    <TableRow key={row.city}> {/* Assuming row.city is unique for this report */}
+                      <TableCell className="font-medium">{row.city ?? 'N/A'}</TableCell>
                       <TableCell className="text-center">
                         {row.blinkit ? <CheckCircle2 className="h-5 w-5 text-green-500 inline-block" /> : <XCircle className="h-5 w-5 text-red-500 inline-block" />}
                       </TableCell>
