@@ -106,10 +106,9 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
         if (!dataPresentForSelectedDate) {
           showSyncMessage = true;
           message = `No local data for today (${selectedDateString}). Use Admin Panel to sync if needed.`;
-        } else if (lastSyncedDate && !isToday(lastSyncedDate)) {
-          showSyncMessage = true;
-          message = `Local data for today (${selectedDateString}) might be outdated (last sync: ${format(lastSyncedDate, 'PPP')}). Use Admin Panel to refresh.`;
         }
+        // No longer automatically syncing if data for today is present, even if lastSyncedDate is not today
+        // User explicitly syncs today's data via Admin Panel if they suspect it's stale.
       } else { // For past dates
         if (!dataPresentForSelectedDate) {
           showSyncMessage = true;
@@ -258,9 +257,9 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                           fontSize: '10px',
                           fill: 'hsl(var(--foreground))',
                           position: 'inside',
-                          formatter: (_value, entry) => {
+                          formatter: (value, entry) => { // value is totalDemand for this slice, entry is the full data object
                             if (entry.percent < 0.05 && clientDemandForChart.length > 3) return '';
-                            return `${entry.name} (${(entry.percent * 100).toFixed(0)}%)`;
+                            return `${entry.name}: ${value} (${(entry.percent * 100).toFixed(0)}%)`;
                           }
                         }}
                         outerRadius={dynamicPieRadius}
