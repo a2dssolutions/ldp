@@ -28,8 +28,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
     if (date && isValid(date)) {
       setSelectedDate_(date);
     } else {
-      // Handle invalid date selection, perhaps reset to default or show error
-      setSelectedDate_(new Date(initialSelectedDate)); // Reset to initial if invalid
+      setSelectedDate_(new Date(initialSelectedDate)); 
       toast({ title: "Invalid Date", description: "Please select a valid date.", variant: "destructive" });
     }
   };
@@ -53,7 +52,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
     } catch (error) {
       console.error('Failed to generate city analysis report:', error);
       toast({ title: 'Error Generating Report', description: error instanceof Error ? error.message : 'Could not generate report.', variant: 'destructive' });
-      setReportData([]); // Ensure reportData is an empty array on error
+      setReportData([]);
     } finally {
       setIsLoading(false);
     }
@@ -116,25 +115,27 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
                 </TableHeader>
                 <TableBody>
                   {reportData
-                    .filter(row => row && typeof row === 'object' && row.city) // Defensive filter
-                    .map((row) => (
-                    <TableRow key={row.city}> {/* Assuming row.city is unique for this report */}
-                      <TableCell className="font-medium">{row.city ?? 'N/A'}</TableCell>
-                      <TableCell className="text-center">
-                        {row.blinkit ? <CheckCircle2 className="h-5 w-5 text-green-500 inline-block" /> : <XCircle className="h-5 w-5 text-red-500 inline-block" />}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {row.zepto ? <CheckCircle2 className="h-5 w-5 text-green-500 inline-block" /> : <XCircle className="h-5 w-5 text-red-500 inline-block" />}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {row.swiggyFood ? <CheckCircle2 className="h-5 w-5 text-green-500 inline-block" /> : <XCircle className="h-5 w-5 text-red-500 inline-block" />}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {row.swiggyIM ? <CheckCircle2 className="h-5 w-5 text-green-500 inline-block" /> : <XCircle className="h-5 w-5 text-red-500 inline-block" />}
-                      </TableCell>
-                      <TableCell className="text-xs sm:text-sm">{row.highDemandAreas || 'N/A'}</TableCell>
-                    </TableRow>
-                  ))}
+                    .filter(row => row && typeof row === 'object' && row.city) 
+                    .map((row) => {
+                      return (
+                        <TableRow key={row.city}>
+                          <TableCell className="font-medium">{row.city ?? 'N/A'}</TableCell>
+                          <TableCell className="text-center">
+                            {row.blinkit ? <CheckCircle2 className="h-5 w-5 text-green-500 inline-block" /> : <XCircle className="h-5 w-5 text-red-500 inline-block" />}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {row.zepto ? <CheckCircle2 className="h-5 w-5 text-green-500 inline-block" /> : <XCircle className="h-5 w-5 text-red-500 inline-block" />}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {row.swiggyFood ? <CheckCircle2 className="h-5 w-5 text-green-500 inline-block" /> : <XCircle className="h-5 w-5 text-red-500 inline-block" />}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {row.swiggyIM ? <CheckCircle2 className="h-5 w-5 text-green-500 inline-block" /> : <XCircle className="h-5 w-5 text-red-500 inline-block" />}
+                          </TableCell>
+                          <TableCell className="text-xs sm:text-sm">{row.highDemandAreas || 'N/A'}</TableCell>
+                        </TableRow>
+                      );
+                    })}
                 </TableBody>
               </Table>
             </ScrollArea>
