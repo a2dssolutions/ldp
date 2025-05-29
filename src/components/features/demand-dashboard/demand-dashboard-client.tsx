@@ -14,6 +14,7 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { 
   getLocalDemandDataForDate, 
   getSyncStatus, 
+  performLocalSyncOperations,
   calculateCityDemandSummary,
   calculateClientDemandSummary,
   calculateAreaDemandSummary,
@@ -23,7 +24,7 @@ import type { DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, Mult
 import type { LocalDemandRecord } from '@/lib/dexie';
 import { format, parseISO, isToday, isValid, startOfDay } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
-import { Users, MapPin, TrendingUp, Zap, Info, Search, Eye } from 'lucide-react';
+import { Users, MapPin, TrendingUp, Zap, Info, Search, Eye, FileText } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -85,7 +86,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
     setIsClientRendered(true);
     const calculateRadius = () => {
       if (typeof window !== 'undefined') {
-        const newRadius = Math.max(50, Math.min(120, window.innerWidth / 4 - 30)); 
+        const newRadius = Math.max(60, Math.min(120, window.innerWidth / 4 - 40)); 
         setDynamicPieRadius(newRadius);
       }
     };
@@ -98,30 +99,31 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
   useEffect(() => {
     if (isClientRendered && isValid(selectedDate)) {
       const dataPresentForSelectedDate = localDemandData && localDemandData.length > 0;
-      let needsSync = false;
-      let reason = "";
+      let showSyncMessage = false;
+      let message = "";
 
       if (isToday(selectedDate)) {
         if (!dataPresentForSelectedDate) {
-            needsSync = true;
-            reason = `No local data found for today (${selectedDateString}).`;
+          showSyncMessage = true;
+          message = `No local data for today (${selectedDateString}). Use Admin Panel to sync if needed.`;
+        } else if (lastSyncedDate && !isToday(lastSyncedDate)) {
+          showSyncMessage = true;
+          message = `Local data for today (${selectedDateString}) might be outdated (last sync: ${format(lastSyncedDate, 'PPP')}). Use Admin Panel to refresh.`;
         }
-        // For today's date, we don't auto-sync if data is present, even if lastSyncedDate isn't today.
-        // Users should use Admin Panel to force a refresh of today's data if needed.
       } else { // For past dates
         if (!dataPresentForSelectedDate) {
-            needsSync = true;
-            reason = `No local data found for ${selectedDateString}.`;
+          showSyncMessage = true;
+          message = `No local data found for ${selectedDateString}. Use Admin Panel to sync specific dates if necessary.`;
         }
       }
       
-      if (needsSync) {
-        setSyncStatusMessage(`${reason} Please use the Admin Panel to sync data if needed.`);
+      if (showSyncMessage) {
+        setSyncStatusMessage(message);
       } else {
         setSyncStatusMessage(null);
       }
     }
-  }, [selectedDate, isClientRendered, localDemandData, lastSyncedDate, selectedDateString]);
+  }, [selectedDate, isClientRendered, localDemandData, lastSyncedDate, selectedDateString, toast]);
 
 
   const filteredDemandData = useMemo(() => {
@@ -220,9 +222,9 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
       <>
           <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
             <Card>
-              <CardHeader><CardTitle className="text-xl font-semibold flex items-center gap-2"><MapPin className="text-primary"/> Demand by City</CardTitle><CardDescription className="text-sm text-muted-foreground">Top 10 cities by total demand (from local data).</CardDescription></CardHeader>
+              <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><MapPin className="text-primary h-5 w-5"/> Demand by City</CardTitle><CardDescription className="text-sm text-muted-foreground">Top 10 cities by total demand (from local data).</CardDescription></CardHeader>
               <CardContent className="h-[300px] sm:h-[350px]">
-                {cityDemandForChart.length > 0 ? (
+                {isClientRendered && cityDemandForChart.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={cityDemandForChart}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -242,13 +244,32 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
             </Card>
 
             <Card>
-              <CardHeader><CardTitle  className="text-xl font-semibold flex items-center gap-2"><Users className="text-primary"/> Demand by Client</CardTitle><CardDescription className="text-sm text-muted-foreground">Distribution of demand across clients (from local data).</CardDescription></CardHeader>
+              <CardHeader><CardTitle  className="flex items-center gap-2 text-lg"><Users className="text-primary h-5 w-5"/> Demand by Client</CardTitle><CardDescription className="text-sm text-muted-foreground">Distribution of demand across clients (from local data).</CardDescription></CardHeader>
               <CardContent className="h-[300px] sm:h-[350px]">
-                {clientDemandForChart.length > 0 ? (
+                {isClientRendered && clientDemandForChart.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={clientDemandForChart} cx="50%" cy="50%" labelLine={false} label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`} outerRadius={dynamicPieRadius} dataKey="totalDemand" nameKey="client">
-                        {clientDemandForChart.map((entry, index) => (<Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />))}
+                    <Pie
+                        data={clientDemandForChart}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={{
+                          fontSize: '10px',
+                          fill: 'hsl(var(--foreground))',
+                          position: 'inside',
+                          formatter: (_value, entry) => {
+                            if (entry.percent < 0.05 && clientDemandForChart.length > 3) return '';
+                            return `${entry.name} (${(entry.percent * 100).toFixed(0)}%)`;
+                          }
+                        }}
+                        outerRadius={dynamicPieRadius}
+                        dataKey="totalDemand"
+                        nameKey="client"
+                      >
+                        {clientDemandForChart.map((_entry, index) => (
+                          <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                        ))}
                       </Pie>
                       <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)'}} labelStyle={{ color: 'hsl(var(--foreground))' }} />
                       <Legend wrapperStyle={{fontSize: "12px"}}/>
@@ -265,7 +286,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
             <Card className="xl:col-span-1"> 
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <div className="space-y-1">
-                    <CardTitle className="text-xl font-semibold flex items-center gap-2"><TrendingUp className="text-primary"/> Top Performing Areas</CardTitle>
+                    <CardTitle className="flex items-center gap-2 text-lg"><TrendingUp className="text-primary h-5 w-5"/> Top Performing Areas</CardTitle>
                     <CardDescription className="text-sm text-muted-foreground">Highest demand areas (Top 5 from local data).</CardDescription>
                 </div>
                 {areaDemand.length > 5 && (
@@ -317,7 +338,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
             <Card> 
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                     <div className="space-y-1">
-                        <CardTitle className="text-xl font-semibold flex items-center gap-2"><Zap className="text-primary"/> Multi-Client Hotspot Cities</CardTitle>
+                        <CardTitle className="flex items-center gap-2 text-lg"><Zap className="text-primary h-5 w-5"/> Multi-Client Hotspot Cities</CardTitle>
                         <CardDescription className="text-sm text-muted-foreground">Cities with demand from multiple clients (Top 5 from local data).</CardDescription>
                     </div>
                      {multiClientHotspots.length > 5 && (
@@ -366,7 +387,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle className="text-xl font-semibold flex items-center gap-2"><Info className="text-primary" /> Data Source</CardTitle><CardDescription className="text-sm text-muted-foreground">Details about the displayed data.</CardDescription></CardHeader>
+              <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Info className="text-primary h-5 w-5" /> Data Source</CardTitle><CardDescription className="text-sm text-muted-foreground">Details about the displayed data.</CardDescription></CardHeader>
               <CardContent className="min-h-[180px] flex flex-col items-center justify-center space-y-2">
                   <p className="text-sm text-muted-foreground">Displaying data for: <span className="font-semibold text-foreground">{isValid(selectedDate) ? format(selectedDate, 'PPP') : 'Loading date...'}</span></p>
                   <p className="text-sm text-muted-foreground">Total records in local cache for this date: <span className="font-semibold text-foreground">{localDemandData?.length || 0}</span></p>
@@ -376,7 +397,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
           </div>
           
           <Card>
-            <CardHeader><CardTitle className="text-xl font-semibold">Detailed Demand Data</CardTitle><CardDescription className="text-sm text-muted-foreground">Locally cached records for the selected date. Demand Tiers: High &gt; 20, Medium 10-20, Low &lt; 10.</CardDescription></CardHeader>
+            <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><FileText className="text-primary h-5 w-5"/>Detailed Demand Data</CardTitle><CardDescription className="text-sm text-muted-foreground">Locally cached records for the selected date. Demand Tiers: High &gt; 20, Medium 10-20, Low &lt; 10.</CardDescription></CardHeader>
             <CardContent>
               {filteredDemandData.length > 0 ? (
                 <div className="max-h-[400px] overflow-auto rounded-md border">
@@ -394,7 +415,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                 </div>
               ) : (
                  <p className="text-center text-sm text-muted-foreground py-4">
-                  {(!localDemandData || localDemandData.length === 0) ? `No data found in local cache for ${selectedDateString}. You can sync using the Admin Panel.` : 
+                  {(!localDemandData || localDemandData.length === 0) ? `No data found in local cache for ${selectedDateString}. Use Admin Panel to sync data.` : 
                    'No data matches the current filters for the selected date.'}
                 </p>
               )}
@@ -426,3 +447,4 @@ function DashboardSkeleton() {
     </div>
   );
 }
+
