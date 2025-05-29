@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { fetchAllSheetsDataAction, saveDemandDataAction } from '@/lib/actions';
 import type { MergedSheetData, ClientName, DemandData } from '@/lib/types'; // Added DemandData
 import type { ClientFetchResult } from '@/lib/services/google-sheet-service';
-import { saveBatchDataToLocalDB } from '@/lib/services/demand-data-service'; // Import new local save function
+import { saveBatchDataToLocalDB, updateSyncStatus } from '@/lib/services/demand-data-service'; // Import updateSyncStatus
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, UploadCloud, FileText, AlertTriangle, CheckCircle, XCircle, FileQuestion, Info } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -116,6 +116,7 @@ export function DataIngestionClient() {
         if (!selectedClientsToFetch.includes(clientName)) {
           return { client: clientName, status: 'not-fetched', message: 'Not included in this fetch.', rowCount: 0 } as SourceStatus;
         }
+        // Fallback for clients that might not have been in result.clientResults but were selected (should ideally not happen)
         return { client: clientName, status: 'initial', message: 'Status unknown.', rowCount: 0 } as SourceStatus;
       });
       setSourceStatuses(updatedStatuses);
@@ -200,8 +201,14 @@ export function DataIngestionClient() {
           }));
           await saveBatchDataToLocalDB(demandDataToSaveLocally);
           toast({ title: 'Local Cache Updated', description: 'Fetched data also saved to local cache.' });
+          
+          // Step 3: Update local sync timestamp
+          await updateSyncStatus(new Date());
+          console.log("Data Ingestion: Local sync status updated after successful local save.");
+
+
         } catch (localSaveError) {
-          console.error('Failed to save data to local Dexie DB:', localSaveError);
+          console.error('Failed to save data to local Dexie DB or update sync status:', localSaveError);
           toast({
             title: 'Local Cache Update Failed',
             description: `Data saved to Firestore, but failed to update local cache: ${localSaveError instanceof Error ? localSaveError.message : String(localSaveError)}`,
@@ -234,7 +241,7 @@ export function DataIngestionClient() {
       case 'success': return <CheckCircle className="h-4 w-4 text-green-500" />;
       case 'error': return <XCircle className="h-4 w-4 text-red-500" />;
       case 'empty': return <FileQuestion className="h-4 w-4 text-yellow-500" />;
-      case 'not-fetched': return <Info className="h-4 w-4 text-gray-400" />;
+      case 'not-fetched': return <Info className="h-4 w-4 text-gray-400" />; // Or a specific "skipped" icon
       default: return <Info className="h-4 w-4 text-muted-foreground" />;
     }
   };
