@@ -344,7 +344,7 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
             Test All Data Sources
           </Button>
           {healthCheckResults && (
-            <ScrollArea className="mt-4 max-h-72 w-full rounded-md border">
+            <ScrollArea className="mt-4 max-h-60 w-full rounded-md border">
               <div className="p-4 space-y-3">
                 {healthCheckResults.map((result) => (
                   <Card key={result.client} className="shadow-none">
