@@ -1,6 +1,11 @@
-import { AdminPanelClient } from '@/components/features/admin-panel/admin-panel-client';
 
-export default function AdminPanelPage() {
+import { AdminPanelClient } from '@/components/features/admin-panel/admin-panel-client';
+import { getAppSettingsAction } from '@/lib/actions';
+import type { AppSettings } from '@/lib/services/config-service';
+
+export default async function AdminPanelPage() {
+  const appSettings: AppSettings = await getAppSettingsAction();
+
   return (
     <div className="space-y-6">
       <header>
@@ -9,7 +14,7 @@ export default function AdminPanelPage() {
           Manage system settings, trigger manual operations, and view logs.
         </p>
       </header>
-      <AdminPanelClient />
+      <AdminPanelClient initialSettings={appSettings} />
     </div>
   );
 }
