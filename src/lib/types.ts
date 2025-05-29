@@ -30,9 +30,9 @@ export interface ClientDemand {
 
 export interface AreaDemand {
   area: string;
-  city: string; 
+  city: string;
   totalDemand: number;
-  clients: ClientName[]; 
+  clients: ClientName[];
 }
 
 export interface MultiClientHotspotCity {
@@ -46,4 +46,13 @@ export interface MultiClientHotspotCity {
 export interface LocalSyncMeta {
   id: string; // e.g., 'lastSyncStatus'
   timestamp: number | null; // Store as number (Date.getTime())
+}
+
+export interface CityClientMatrixRow {
+  city: string;
+  blinkit: boolean;
+  zepto: boolean;
+  swiggyFood: boolean;
+  swiggyIM: boolean;
+  highDemandAreas: string; // e.g., "Area1 (Score1), Area2 (Score2), Area3 (Score3)"
 }

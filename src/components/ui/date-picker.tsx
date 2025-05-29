@@ -1,7 +1,8 @@
+
 "use client"
 
 import * as React from "react"
-import { format } from "date-fns"
+import { format, isValid } from "date-fns" // Added isValid
 import { Calendar as CalendarIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -18,15 +19,20 @@ interface DatePickerProps {
   date?: Date;
   onDateChange: (date: Date | undefined) => void;
   className?: string;
+  disabled?: boolean; // Added disabled prop
 }
 
-export function DatePicker({ id, date, onDateChange, className }: DatePickerProps) {
+export function DatePicker({ id, date, onDateChange, className, disabled }: DatePickerProps) {
+  // Ensure date is a valid Date object or undefined before formatting
+  const displayDate = date && isValid(date) ? format(date, "PPP") : <span>Pick a date</span>;
+  
   return (
     <Popover>
       <PopoverTrigger asChild>
         <Button
           id={id}
           variant={"outline"}
+          disabled={disabled} // Apply disabled prop
           className={cn(
             "w-full justify-start text-left font-normal",
             !date && "text-muted-foreground",
@@ -34,7 +40,7 @@ export function DatePicker({ id, date, onDateChange, className }: DatePickerProp
           )}
         >
           <CalendarIcon className="mr-2 h-4 w-4" />
-          {date ? format(date, "PPP") : <span>Pick a date</span>}
+          {displayDate}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0">
@@ -43,6 +49,7 @@ export function DatePicker({ id, date, onDateChange, className }: DatePickerProp
           selected={date}
           onSelect={onDateChange}
           initialFocus
+          disabled={disabled} // Pass disabled to Calendar
         />
       </PopoverContent>
     </Popover>
