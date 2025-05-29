@@ -3,14 +3,13 @@
 
 import {
   fetchAllSheetsData as serviceFetchAllSheets,
-  type FetchAllSheetsDataActionResult,
+  type ClientFetchResult,
 } from '@/lib/services/google-sheet-service';
 import {
   saveDemandDataToStore,
   clearAllDemandDataFromStore,
-  getDemandDataFromFirestore, // Renamed for clarity
-  getHistoricalDemandDataFromFirestore, // Renamed for clarity
-  clearAllLocalDemandData as serviceClearAllLocalDemandData,
+  getDemandDataFromFirestore, 
+  getHistoricalDemandDataFromFirestore, 
   // Summary functions are now client-side or called with data, not direct Firestore calls from client
 } from '@/lib/services/demand-data-service';
 import { getAppSettings as serviceGetAppSettings, saveAppSettings as serviceSaveAppSettings, type AppSettings } from '@/lib/services/config-service';
@@ -18,16 +17,20 @@ import type { MergedSheetData, DemandData, ClientName, CityDemand, ClientDemand,
 import { format } from 'date-fns';
 
 // Sheet Ingestion Actions
-export async function fetchAllSheetsDataAction(clientsToFetch?: ClientName[]): Promise<FetchAllSheetsDataActionResult> {
+export async function fetchAllSheetsDataAction(clientsToFetch?: ClientName[]): Promise<{
+    allMergedData: MergedSheetData[];
+    clientResults: ClientFetchResult[];
+}> {
   const appSettings = await serviceGetAppSettings();
-  return serviceFetchAllSheets(appSettings.sheetUrls, clientsToFetch);
+  const result = await serviceFetchAllSheets(appSettings.sheetUrls, clientsToFetch);
+  return { allMergedData: result.allMergedData, clientResults: result.clientResults};
 }
 
 export async function saveDemandDataAction(data: MergedSheetData[]): Promise<{ success: boolean; message: string }> {
   return saveDemandDataToStore(data);
 }
 
-// Firestore Data Actions (primarily for server-side use or specific direct calls if needed)
+// Firestore Data Actions 
 export async function getDemandDataAction(
   filters?: {
     client?: ClientName;
@@ -46,16 +49,19 @@ export async function getHistoricalDemandDataAction(
   return getHistoricalDemandDataFromFirestore(dateRange, filters);
 }
 
-// Manual Sync Action (Admin Panel)
+// Manual Sync Action (Admin Panel) - Sheets to Firestore
 export async function triggerManualSyncAction(): Promise<{ success: boolean; message: string }> {
   console.log("Manual sync triggered to load LIVE data from Google Sheets to Firestore...");
   const appSettings = await serviceGetAppSettings();
   try {
     const clearResult = await clearAllDemandDataFromStore();
     if (!clearResult.success) {
-      console.error("Failed to clear existing data from Firestore during manual sync:", clearResult.message);
+      console.warn("Failed to clear existing data from Firestore during manual sync:", clearResult.message);
+      // Proceeding even if clear fails, as new data might still be saveable or might overwrite.
     }
-    const { allMergedData: liveData, clientResults } = await fetchAllSheetsDataAction();
+    
+    // Fetch all data from all clients (default behavior of fetchAllSheetsDataAction if no specific clients are passed)
+    const { allMergedData: liveData, clientResults } = await fetchAllSheetsDataAction(); 
     
     const successfulFetches = clientResults.filter(r => r.status === 'success' || r.status === 'empty').length;
     const errorFetches = clientResults.filter(r => r.status === 'error').length;
@@ -71,9 +77,7 @@ export async function triggerManualSyncAction(): Promise<{ success: boolean; mes
     
     const saveResult = await saveDemandDataToStore(liveData);
     const overallMessage = `${fetchSummary} ${saveResult.message}`;
-    // After saving to Firestore, this action does NOT automatically update local IndexedDB for all clients.
-    // Clients should use their own "Sync" button on the dashboard for that.
-    return { success: saveResult.success, message: overallMessage };
+    return { success: saveResult.success && errorFetches === 0, message: overallMessage };
   } catch (error) {
     console.error("Error during manual live data sync to Firestore:", error);
     return { success: false, message: `Manual sync to Firestore failed: ${error instanceof Error ? error.message : String(error)}` };
@@ -94,12 +98,11 @@ export async function syncLocalDemandDataForDateAction(date: string): Promise<{ 
   try {
     console.log(`Action: Syncing local data for date ${date} from Firestore.`);
     // Fetch data from Firestore for the given date (no client/city filters for a full day sync)
-    const firestoreData = await getDemandDataFromFirestore({ date });
+    // Use bypassLimits: true to ensure all data for the date is fetched for local caching.
+    const firestoreData = await getDemandDataFromFirestore({ date }, { bypassLimits: true });
     if (firestoreData.length === 0) {
       console.log(`Action: No data found in Firestore for ${date}. Local DB for this date will be cleared if previously populated.`);
     }
-    // The actual saving to Dexie will happen client-side after this action returns the data.
-    // This action just provides the data from Firestore.
     return { success: true, data: firestoreData };
   } catch (error) {
     console.error(`Action: Error syncing local data for date ${date}:`, error);
@@ -107,17 +110,15 @@ export async function syncLocalDemandDataForDateAction(date: string): Promise<{ 
   }
 }
 
-// Action for client to clear its local IndexedDB
+// Action for client to clear its local IndexedDB - conceptual, actual clearing is client-side
 export async function clearAllLocalDemandDataAction(): Promise<{success: boolean, message: string}> {
-    // This action primarily serves as a server-side acknowledgement if needed,
-    // but the actual clearing happens client-side via the service.
-    // For now, it can just return a success message.
-    // The service 'serviceClearAllLocalDemandData' is client-side.
-    // This action is more of a conceptual trigger if we wanted server logging or coordination.
-    // The actual clearing must be done in the client's browser context.
-    // So, this server action might not be strictly necessary if the client directly calls the service.
-    // However, to keep the pattern of using actions:
     console.log("Action: Request to clear local demand data acknowledged.");
-    // The client will call the local service function.
     return { success: true, message: "Local data clear request acknowledged. Client will perform the operation." };
 }
+
+// Summary actions - these are no longer needed as summaries are calculated client-side from local data
+// export async function getCityDemandSummaryAction(date: string, client?: ClientName): Promise<CityDemand[]> { ... }
+// export async function getClientDemandSummaryAction(date: string): Promise<ClientDemand[]> { ... }
+// export async function getAreaDemandSummaryAction(date: string, client?: ClientName, city?: string): Promise<AreaDemand[]> { ... }
+// export async function getMultiClientHotspotsAction(date: string, minClients?: number): Promise<MultiClientHotspotCity[]> { ... }
+
