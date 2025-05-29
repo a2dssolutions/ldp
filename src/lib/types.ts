@@ -1,4 +1,3 @@
-
 export type ClientName = 'Zepto' | 'Blinkit' | 'SwiggyFood' | 'SwiggyIM';
 export const ALL_CLIENT_NAMES: ClientName[] = ['Zepto', 'Blinkit', 'SwiggyFood', 'SwiggyIM'];
 
@@ -55,17 +54,5 @@ export interface CityClientMatrixRow {
   swiggyFood: boolean;
   swiggyIM: boolean;
   highDemandAreas: string; // e.g., "Area1 (Score1), Area2 (Score2), Area3 (Score3)"
-  activeSelectedClientCount?: number; // Optional: used internally for sorting
+  activeSelectedClientCount: number; // Now mandatory for sorting
 }
-
-// This type was related to the removed "Posting Suggestions" feature.
-// export interface PostingSuggestions {
-//   commonCities: string[];
-//   citiesWithSingleClient: CityWithSingleClient[];
-// }
-
-// This type was related to the removed "Posting Suggestions" feature.
-// export interface CityWithSingleClient {
-//   city: string;
-//   client: ClientName;
-// }
