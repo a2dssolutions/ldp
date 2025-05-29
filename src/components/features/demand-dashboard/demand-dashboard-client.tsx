@@ -11,7 +11,6 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { DatePicker } from '@/components/ui/date-picker';
-import { syncLocalDemandDataForDateAction } from '@/lib/actions';
 import { 
   getLocalDemandDataForDate, 
   getSyncStatus, 
@@ -19,15 +18,15 @@ import {
   calculateClientDemandSummary,
   calculateAreaDemandSummary,
   calculateMultiClientHotspots,
-  performLocalSyncOperations
 } from '@/lib/services/demand-data-service';
 import type { DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity, LocalSyncMeta } from '@/lib/types';
 import type { LocalDemandRecord } from '@/lib/dexie';
 import { format, parseISO, isToday, isValid, startOfDay } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Users, MapPin, TrendingUp, Zap, Info, Search } from 'lucide-react';
+import { Users, MapPin, TrendingUp, Zap, Info, Search } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useLiveQuery } from 'dexie-react-hooks';
 
 
@@ -41,6 +40,7 @@ interface DemandDashboardClientProps {
 
 export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardClientProps) {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date(initialSelectedDate)); 
+  const [syncStatusMessage, setSyncStatusMessage] = useState<string | null>(null);
   
   const selectedDateString = useMemo(() => {
     if (!selectedDate || !isValid(selectedDate)) {
@@ -67,36 +67,10 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
   }, [syncMeta]);
 
   const [filters, setFilters] = useState<{ client?: ClientName; city?: string }>({});
-  const [isSyncing, setIsSyncing] = useState(false); 
   const { toast } = useToast();
   
   const [isClientRendered, setIsClientRendered] = useState(false);
   const [dynamicPieRadius, setDynamicPieRadius] = useState(90);
-
-  const handleAutoSync = useCallback(async () => {
-    if (!isValid(selectedDate)) {
-        toast({ title: "Invalid Date", description: "Cannot sync data for an invalid date.", variant: "destructive" });
-        return;
-    }
-    setIsSyncing(true);
-    const dateToSync = format(selectedDate, 'yyyy-MM-dd');
-    toast({ title: "Automatic Syncing...", description: `Fetching latest data for ${dateToSync} from cloud for local cache.` });
-    try {
-      const result = await syncLocalDemandDataForDateAction(dateToSync); 
-      if (result.success) {
-        await performLocalSyncOperations(dateToSync, result.data); 
-        toast({ title: "Auto Sync Successful", description: `${result.data.length} records updated in local cache for ${dateToSync}.` });
-      } else {
-        toast({ title: "Auto Sync Failed", description: result.message || "Could not sync data from cloud.", variant: "destructive" });
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-      console.error("Failed to auto-sync demand data:", error);
-      toast({ title: "Auto Sync Error", description: `An unexpected error occurred during automatic sync: ${errorMessage}`, variant: "destructive"});
-    } finally {
-      setIsSyncing(false);
-    }
-  }, [selectedDate, toast]); 
 
   useEffect(() => {
     setIsClientRendered(true);
@@ -109,36 +83,31 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
     calculateRadius(); 
     window.addEventListener('resize', calculateRadius);
     
-    if (isClientRendered && isValid(selectedDate)) {
-        const dataPresentForSelectedDate = localDemandData && localDemandData.length > 0;
-        
-        let triggerSync = false;
-        let reason = "";
-
-        if (isToday(selectedDate)) {
-            // For today, ONLY sync if data is NOT present locally.
-            // If data IS present (e.g. from "Upload to Local Only"), trust it.
-            // User can force refresh today via Admin Panel's "Sync Today from Cloud to Local" button.
-            if (!dataPresentForSelectedDate) {
-                triggerSync = true;
-                reason = "Today's data missing locally.";
-            }
-        } else {
-            // For past dates, if data is not present locally, sync it.
-            if (!dataPresentForSelectedDate) {
-                triggerSync = true;
-                reason = `Data for ${selectedDateString} missing locally.`;
-            }
-        }
-
-        if (triggerSync && !isSyncing) {
-            console.log(`Dashboard: Auto-sync triggered for ${selectedDateString}. Reason: ${reason}. Last synced: ${lastSyncedDate ? format(lastSyncedDate, 'PPP p') : 'Never'}`);
-            handleAutoSync();
-        }
-    }
-
     return () => window.removeEventListener('resize', calculateRadius);
-  }, [selectedDate, isClientRendered, handleAutoSync, localDemandData, lastSyncedDate, selectedDateString, isSyncing]);
+  }, []);
+
+  useEffect(() => {
+    if (isClientRendered && isValid(selectedDate)) {
+      const dataPresentForSelectedDate = localDemandData && localDemandData.length > 0;
+      let needsSync = false;
+      let reason = "";
+
+      if (!dataPresentForSelectedDate) {
+        needsSync = true;
+        reason = `No local data found for ${selectedDateString}.`;
+      } else if (isToday(selectedDate) && (!lastSyncedDate || !isToday(lastSyncedDate))) {
+        // Data for today is present, but it wasn't synced today. It might be stale.
+        needsSync = true;
+        reason = `Local data for today (${selectedDateString}) might be outdated as it wasn't synced today.`;
+      }
+      
+      if (needsSync) {
+        setSyncStatusMessage(`${reason} Please consider syncing via the Admin Panel for the latest records.`);
+      } else {
+        setSyncStatusMessage(null);
+      }
+    }
+  }, [selectedDate, isClientRendered, localDemandData, lastSyncedDate, selectedDateString]);
 
 
   const filteredDemandData = useMemo(() => {
@@ -182,13 +151,17 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
     return isValid(selectedDate) ? selectedDate : new Date(initialSelectedDate);
   }, [selectedDate, initialSelectedDate]);
 
+  if (!isClientRendered || localDemandData === undefined) { // Show skeleton if not client rendered OR localDemandData is still undefined (initial Dexie load)
+    return <DashboardSkeleton />;
+  }
+
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle className="text-xl font-semibold">Filter Demand Data</CardTitle>
           <CardDescription className="text-sm text-muted-foreground">
-            Apply filters to view locally cached data. Last local sync: {lastSyncedDate && isValid(lastSyncedDate) ? format(lastSyncedDate, 'PPP p') : 'Never'}
+            Apply filters to view locally cached data. Last local sync for any date: {lastSyncedDate && isValid(lastSyncedDate) ? format(lastSyncedDate, 'PPP p') : 'Never'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -220,15 +193,22 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
         </CardContent>
       </Card>
 
-      {(isSyncing && (!localDemandData || localDemandData.length === 0)) ? (
-        <DashboardSkeleton />
-      ) : (
-        <>
+      {syncStatusMessage && (
+        <Alert>
+          <Info className="h-4 w-4" />
+          <AlertTitle>Sync Status</AlertTitle>
+          <AlertDescription>
+            {syncStatusMessage}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <>
           <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
             <Card>
               <CardHeader><CardTitle className="text-xl font-semibold flex items-center gap-2"><MapPin className="text-primary"/> Demand by City</CardTitle><CardDescription className="text-sm text-muted-foreground">Top 10 cities by total demand (from local data).</CardDescription></CardHeader>
               <CardContent className="h-[300px] sm:h-[350px]">
-                {isClientRendered && cityDemandForChart.length > 0 ? (
+                {cityDemandForChart.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={cityDemandForChart}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -239,18 +219,18 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                       <Bar dataKey="totalDemand" name="Total Demand" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
-                ) : isClientRendered ? (
+                ) : (
                     <div className="flex items-center justify-center h-full">
                         <p className="text-sm text-muted-foreground">No city demand data to display for current filters/date.</p>
                     </div>
-                ) : <Skeleton className="h-full w-full" />}
+                )}
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader><CardTitle  className="text-xl font-semibold flex items-center gap-2"><Users className="text-primary"/> Demand by Client</CardTitle><CardDescription className="text-sm text-muted-foreground">Distribution of demand across clients (from local data).</CardDescription></CardHeader>
               <CardContent className="h-[300px] sm:h-[350px]">
-                {isClientRendered && clientDemandForChart.length > 0 ? (
+                {clientDemandForChart.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie data={clientDemandForChart} cx="50%" cy="50%" labelLine={false} label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`} outerRadius={dynamicPieRadius} dataKey="totalDemand" nameKey="client">
@@ -260,18 +240,18 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                       <Legend wrapperStyle={{fontSize: "12px"}}/>
                     </PieChart>
                   </ResponsiveContainer>
-                ) : isClientRendered ? (
+                ) : (
                      <div className="flex items-center justify-center h-full">
                         <p className="text-sm text-muted-foreground">No client demand data to display for current filters/date.</p>
                     </div>
-                ): <Skeleton className="h-full w-full" />}
+                )}
               </CardContent>
             </Card>
             
             <Card className="xl:col-span-1"> 
               <CardHeader><CardTitle className="text-xl font-semibold flex items-center gap-2"><TrendingUp className="text-primary"/> Top Performing Areas</CardTitle><CardDescription className="text-sm text-muted-foreground">Highest demand areas (Top 5 from local data).</CardDescription></CardHeader>
               <CardContent className="h-[300px] sm:h-[350px] overflow-y-auto">
-                {isClientRendered && topAreaDemandForChart.length > 0 ? (
+                {topAreaDemandForChart.length > 0 ? (
                   <ul className="space-y-3">
                     {topAreaDemandForChart.map((item, index) => (
                       <li key={index} className="flex justify-between items-center p-2 rounded-md bg-card border">
@@ -280,9 +260,9 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                       </li>
                     ))}
                   </ul>
-                ) : isClientRendered ? (
+                ) : (
                   <p className="text-center text-sm text-muted-foreground pt-10">No area data available for current filters/date.</p>
-                ) : <Skeleton className="w-full h-full"/> }
+                ) }
               </CardContent>
             </Card>
           </div>
@@ -291,7 +271,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
             <Card> 
               <CardHeader><CardTitle className="text-xl font-semibold flex items-center gap-2"><Zap className="text-primary"/> Multi-Client Hotspot Cities</CardTitle><CardDescription className="text-sm text-muted-foreground">Cities with demand from multiple clients (Top 5 from local data).</CardDescription></CardHeader>
               <CardContent className="min-h-[200px] overflow-y-auto">
-                {isClientRendered && multiClientHotspots.length > 0 ? (
+                {multiClientHotspots.length > 0 ? (
                   <ul className="space-y-3">
                     {multiClientHotspots.slice(0, 5).map((hotspot) => (
                       <li key={hotspot.city} className="p-3 rounded-md bg-card border">
@@ -301,9 +281,9 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                       </li>
                     ))}
                   </ul>
-                ) : isClientRendered ? (
+                ) : (
                   <p className="text-center text-sm text-muted-foreground pt-10">No multi-client hotspots found for current filters/date.</p>
-                ) : <Skeleton className="w-full h-[180px]"/> }
+                ) }
               </CardContent>
             </Card>
             <Card>
@@ -312,7 +292,6 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                   <p className="text-sm text-muted-foreground">Displaying data for: <span className="font-semibold text-foreground">{isValid(selectedDate) ? format(selectedDate, 'PPP') : 'Loading date...'}</span></p>
                   <p className="text-sm text-muted-foreground">Total records in local cache for this date: <span className="font-semibold text-foreground">{localDemandData?.length || 0}</span></p>
                   <p className="text-sm text-muted-foreground">Last cloud sync for any date: {lastSyncedDate  && isValid(lastSyncedDate) ? <span className="font-semibold text-foreground">{format(lastSyncedDate, 'PPP p')}</span> : <span className="font-semibold text-foreground">Never</span>}</p>
-                  {isSyncing && <p className="text-sm text-primary">Syncing in progress...</p>}
               </CardContent>
             </Card>
           </div>
@@ -320,7 +299,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
           <Card>
             <CardHeader><CardTitle className="text-xl font-semibold">Detailed Demand Data</CardTitle><CardDescription className="text-sm text-muted-foreground">Locally cached records for the selected date. Demand Tiers: High &gt; 20, Medium 10-20, Low &lt; 10.</CardDescription></CardHeader>
             <CardContent>
-              {isClientRendered && filteredDemandData.length > 0 ? (
+              {filteredDemandData.length > 0 ? (
                 <div className="max-h-[400px] overflow-auto rounded-md border">
                   <Table>
                     <TableHeader className="sticky top-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"><TableRow><TableHead>Client</TableHead><TableHead>City</TableHead><TableHead>Area</TableHead><TableHead>Demand Score</TableHead><TableHead>Priority</TableHead><TableHead>Date</TableHead></TableRow></TableHeader>
@@ -334,17 +313,15 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                     </TableBody>
                   </Table>
                 </div>
-              ) : isClientRendered ? (
+              ) : (
                  <p className="text-center text-sm text-muted-foreground py-4">
-                  {isSyncing ? 'Syncing data...' : 
-                   (!localDemandData || localDemandData.length === 0) ? `No data found in local cache for ${selectedDateString}. Use Data Ingestion or Admin Panel to sync.` : 
+                  {(!localDemandData || localDemandData.length === 0) ? `No data found in local cache for ${selectedDateString}. Consider using Data Ingestion or Admin Panel sync.` : 
                    'No data matches the current filters for the selected date.'}
                 </p>
-              ) : <Skeleton className="h-40 w-full" />}
+              )}
             </CardContent>
           </Card>
         </>
-      )}
     </div>
   );
 }
