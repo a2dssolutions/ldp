@@ -10,16 +10,13 @@ import {
   clearAllDemandDataFromStore,
   getDemandDataFromFirestore,
   getHistoricalDemandDataFromFirestore,
-  calculateCityDemandSummary as serviceGetCityDemandSummary,
-  calculateClientDemandSummary as serviceGetClientDemandSummary,
-  calculateAreaDemandSummary as serviceGetAreaDemandSummary,
-  calculateMultiClientHotspots as serviceGetMultiClientHotspots,
-  performLocalSyncOperations as servicePerformLocalSyncOperations,
-  saveBatchDataToLocalDB as serviceSaveBatchDataToLocalDB,
-  clearDemandDataForDateFromLocalDB as serviceClearDemandDataForDateFromLocalDB,
+  calculateCityDemandSummary as serviceCalculateCityDemandSummary, // Corrected import
+  calculateClientDemandSummary as serviceCalculateClientDemandSummary, // Corrected import
+  calculateAreaDemandSummary as serviceCalculateAreaDemandSummary, // Corrected import
+  calculateMultiClientHotspots as serviceCalculateMultiClientHotspots, // Corrected import
 } from '@/lib/services/demand-data-service';
 import { getAppSettings as serviceGetAppSettings, saveAppSettings as serviceSaveAppSettings, type AppSettings } from '@/lib/services/config-service';
-import type { MergedSheetData, DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity, CityClientMatrixRow } from '@/lib/types';
+import type { MergedSheetData, DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity, CityClientMatrixRow } from '@/lib/types'; // Removed unused ALL_CLIENT_NAMES import
 import { format } from 'date-fns';
 
 // Sheet Ingestion Actions
@@ -65,7 +62,7 @@ export async function triggerManualSyncAction(): Promise<{ success: boolean; mes
       console.warn("Failed to clear existing data from Firestore during manual sync:", clearResult.message);
     }
 
-    const { allMergedData: liveData, clientResults } = await fetchAllSheetsDataAction(); // Uses configured sheet URLs
+    const { allMergedData: liveData, clientResults } = await fetchAllSheetsDataAction(); 
 
     const successfulFetches = clientResults.filter(r => r.status === 'success' || r.status === 'empty').length;
     const errorFetches = clientResults.filter(r => r.status === 'error').length;
@@ -101,7 +98,8 @@ export async function saveAppSettingsAction(settings: Partial<AppSettings>): Pro
 export async function syncLocalDemandDataForDateAction(date: string): Promise<{ success: boolean; data: DemandData[], message?: string }> {
   try {
     console.log(`Action: Syncing local data for date ${date} from Firestore.`);
-    const firestoreData = await getDemandDataFromFirestore({ date }, { bypassLimits: true });
+    // Fetch with bypassLimits to ensure complete data for local cache
+    const firestoreData = await getDemandDataFromFirestore({ date }, { bypassLimits: true }); 
     if (firestoreData.length === 0) {
       console.log(`Action: No data found in Firestore for ${date}. Local DB for this date will be cleared if previously populated.`);
     }
@@ -114,34 +112,41 @@ export async function syncLocalDemandDataForDateAction(date: string): Promise<{ 
 
 export async function clearAllLocalDemandDataAction(): Promise<{success: boolean, message: string}> {
     console.log("Action: Request to clear local demand data acknowledged.");
-    // The actual clearing is done client-side, this action is more of a conceptual trigger if needed.
     return { success: true, message: "Local data clear request acknowledged. Client will perform the operation." };
 }
 
-// Summary actions for server-side dashboard data fetching
+// Summary actions now correctly point to serviceCalculate...
 export async function getCityDemandSummaryAction(data: DemandData[]): Promise<CityDemand[]> {
-  return serviceGetCityDemandSummary(data);
+  return serviceCalculateCityDemandSummary(data);
 }
 
 export async function getClientDemandSummaryAction(data: DemandData[]): Promise<ClientDemand[]> {
-  return serviceGetClientDemandSummary(data);
+  return serviceCalculateClientDemandSummary(data);
 }
 
 export async function getAreaDemandSummaryAction(data: DemandData[]): Promise<AreaDemand[]> {
-  return serviceGetAreaDemandSummary(data);
+  // For now, the dashboard uses client-side calculation for area demand.
+  // If server-side calculation is needed, this would call serviceCalculateAreaDemandSummary
+  console.warn("getAreaDemandSummaryAction called but currently not providing server-side calculation for dashboard use. Client-side calculation is used.");
+  return serviceCalculateAreaDemandSummary(data); // Call the service function
 }
 
 export async function getMultiClientHotspotsAction(data: DemandData[], minClients?: number, minDemandPerClient?: number): Promise<MultiClientHotspotCity[]> {
-  return serviceGetMultiClientHotspots(data, minClients, minDemandPerClient);
+   // For now, the dashboard uses client-side calculation.
+  console.warn("getMultiClientHotspotsAction called but currently not providing server-side calculation for dashboard use. Client-side calculation is used.");
+  return serviceCalculateMultiClientHotspots(data, minClients, minDemandPerClient); // Call the service function
 }
 
+// Removed getCityClientMatrixAction as this logic is now client-side for City Analysis
+// If it were to remain server-side, it would look something like this:
+/*
 export async function getCityClientMatrixAction(date: string): Promise<CityClientMatrixRow[]> {
   try {
     const allDemandDataForDate = await getDemandDataAction({ date }, { bypassLimits: true });
 
     if (!Array.isArray(allDemandDataForDate)) {
       console.error("getCityClientMatrixAction: Fetched data (allDemandDataForDate) is not an array.");
-      return []; // Return empty array if data is malformed
+      return [];
     }
 
     const citiesData: Record<string, {
@@ -153,7 +158,6 @@ export async function getCityClientMatrixAction(date: string): Promise<CityClien
     }> = {};
 
     for (const record of allDemandDataForDate) {
-      // Defensive checks for each record
       if (
         !record ||
         typeof record.city !== 'string' || record.city.trim() === '' ||
@@ -184,26 +188,23 @@ export async function getCityClientMatrixAction(date: string): Promise<CityClien
       else if (record.client === 'Zepto') cityEntry.zepto = true;
       else if (record.client === 'SwiggyFood') cityEntry.swiggyFood = true;
       else if (record.client === 'SwiggyIM') cityEntry.swiggyIM = true;
-      // else, client is not one of the tracked ones for this matrix, but area demand still counts
-
+      
       cityEntry.areas[areaKey] = (cityEntry.areas[areaKey] || 0) + record.demandScore;
     }
 
     const resultMatrix: CityClientMatrixRow[] = [];
     for (const cityName in citiesData) {
-      const cityInfo = citiesData[cityName]; // cityInfo is an object by design here
-
-      // cityInfo.areas is also guaranteed to be an object (Record<string, number>)
+      const cityInfo = citiesData[cityName]; 
+      
       const sortedAreas = Object.entries(cityInfo.areas)
         .map(([areaName, totalDemand]) => {
-            // Ensure areaName is a string and totalDemand is a number before creating the object
             if (typeof areaName === 'string' && typeof totalDemand === 'number' && !isNaN(totalDemand)) {
                 return { areaName, totalDemand };
             }
             console.warn(`getCityClientMatrixAction: Malformed area entry for city ${cityName}: [${areaName}, ${totalDemand}]`);
             return null; 
         })
-        .filter(item => item !== null) as { areaName: string; totalDemand: number }[]; // Filter out nulls and assert type
+        .filter(item => item !== null) as { areaName: string; totalDemand: number }[]; 
       
       sortedAreas.sort((a, b) => b.totalDemand - a.totalDemand);
 
@@ -224,8 +225,7 @@ export async function getCityClientMatrixAction(date: string): Promise<CityClien
     return resultMatrix.sort((a,b) => a.city.localeCompare(b.city));
   } catch (error) {
     console.error("Error in getCityClientMatrixAction:", error);
-    // Instead of re-throwing, return empty array to prevent client error if action fails catastrophically
-    // Client-side should handle empty array gracefully (e.g. "no data" message)
     return []; 
   }
 }
+*/
