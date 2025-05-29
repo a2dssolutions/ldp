@@ -9,13 +9,21 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Input } from '@/components/ui/input'; // Added Input
+import { Input } from '@/components/ui/input';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { CityClientMatrixRow, ClientName, DemandData } from '@/lib/types';
 import { ALL_CLIENT_NAMES } from '@/lib/types';
 import { getLocalDemandDataForDate } from '@/lib/services/demand-data-service';
 import { useToast } from '@/hooks/use-toast';
 import { format, isValid } from 'date-fns';
-import { Loader2, Search, CheckCircle2, XCircle, ArrowUp, ArrowDown } from 'lucide-react'; // Added ArrowUp, ArrowDown
+import { Loader2, Search, CheckCircle2, XCircle, ArrowUp, ArrowDown, Filter } from 'lucide-react';
 
 interface CityAnalysisClientProps {
   initialSelectedDate: string;
@@ -29,13 +37,14 @@ interface SortConfig {
 
 export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientProps) {
   const [selectedDate, setSelectedDate_] = useState<Date>(new Date(initialSelectedDate));
-  const [selectedClients, setSelectedClients] = useState<ClientName[]>(ALL_CLIENT_NAMES);
+  const [primarySelectedClients, setPrimarySelectedClients] = useState<ClientName[]>(ALL_CLIENT_NAMES);
   const [reportData, setReportData] = useState<CityClientMatrixRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
 
   const [citySearchTerm, setCitySearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'activeSelectedClientCount', direction: 'desc' });
+  const [selectedActiveClientCounts, setSelectedActiveClientCounts] = useState<number[]>([]);
 
 
   const handleDateChange = (date: Date | undefined) => {
@@ -47,9 +56,15 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
     }
   };
 
-  const handleClientSelectionChange = (client: ClientName, checked: boolean) => {
-    setSelectedClients(prev =>
+  const handlePrimaryClientSelectionChange = (client: ClientName, checked: boolean) => {
+    setPrimarySelectedClients(prev =>
       checked ? [...prev, client] : prev.filter(c => c !== client)
+    );
+  };
+
+  const handleActiveClientCountFilterChange = (count: number) => {
+    setSelectedActiveClientCounts(prev =>
+      prev.includes(count) ? prev.filter(c => c !== count) : [...prev, count]
     );
   };
 
@@ -61,7 +76,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
     const filteredDataBySelectedClients = localData.filter(record => clientsForAnalysis.includes(record.client));
 
     if (filteredDataBySelectedClients.length === 0 && localData.length > 0) {
-        toast({ title: "No Data for Selected Clients", description: "No demand data found for the currently selected clients on this date." });
+        toast({ title: "No Data for Selected Clients", description: "No demand data found for the currently selected primary clients on this date." });
         return [];
     }
     if (filteredDataBySelectedClients.length === 0 && localData.length === 0) {
@@ -70,11 +85,11 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
     }
 
     const citiesData: Record<string, {
-      activeClients: Set<ClientName>;
-      areas: Record<string, number>;
+      activeClients: Set<ClientName>; // Tracks which of the primarySelectedClients are active
+      areas: Record<string, number>; // areaName: totalDemand from primarySelectedClients
     }> = {};
 
-    for (const record of filteredDataBySelectedClients) {
+    for (const record of filteredDataBySelectedClients) { // Iterate over data already filtered by primarySelectedClients
       if (!record || typeof record.city !== 'string' || record.city.trim() === '') {
         continue;
       }
@@ -87,7 +102,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
         };
       }
       const cityEntry = citiesData[cityKey];
-      cityEntry.activeClients.add(record.client);
+      cityEntry.activeClients.add(record.client); // record.client is guaranteed to be in primarySelectedClients
 
       if (record.area && typeof record.area === 'string' && record.area.trim() !== '' && typeof record.demandScore === 'number') {
         cityEntry.areas[record.area] = (cityEntry.areas[record.area] || 0) + record.demandScore;
@@ -106,8 +121,8 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
         .join(', ') || 'N/A';
 
       const clientPresence: Partial<Record<ClientName, boolean>> = {};
-      ALL_CLIENT_NAMES.forEach(client => { // Check against ALL_CLIENT_NAMES for full matrix, but only display selected ones later
-        clientPresence[client] = cityInfo.activeClients.has(client);
+      ALL_CLIENT_NAMES.forEach(client => { // Check against ALL_CLIENT_NAMES for full matrix
+        clientPresence[client] = cityInfo.activeClients.has(client); // but only selected primary clients contribute to cityInfo.activeClients
       });
 
       resultMatrix.push({
@@ -117,10 +132,10 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
         swiggyFood: clientPresence['SwiggyFood'] || false,
         swiggyIM: clientPresence['SwiggyIM'] || false,
         highDemandAreas: top3AreasString,
-        activeSelectedClientCount: cityInfo.activeClients.size,
+        activeSelectedClientCount: cityInfo.activeClients.size, // Count of primary selected clients active in this city
       });
     }
-    return resultMatrix; // Sorting will be applied later to the displayed data
+    return resultMatrix;
   };
 
 
@@ -129,14 +144,15 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
       toast({ title: "Date Required", description: "Please select a valid date to generate the report.", variant: "destructive" });
       return;
     }
-    if (selectedClients.length === 0) {
-      toast({ title: "Clients Required", description: "Please select at least one client to analyze.", variant: "destructive" });
+    if (primarySelectedClients.length === 0) {
+      toast({ title: "Primary Clients Required", description: "Please select at least one primary client to analyze.", variant: "destructive" });
       setReportData([]);
       return;
     }
 
     setIsLoading(true);
     setReportData([]);
+    setSelectedActiveClientCounts([]); // Reset secondary filter
     try {
       const dateString = format(selectedDate, 'yyyy-MM-dd');
       const localData = await getLocalDemandDataForDate(dateString);
@@ -148,11 +164,11 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
         return;
       }
 
-      const processedReport = processDataForReport(localData, selectedClients);
+      const processedReport = processDataForReport(localData, primarySelectedClients);
       setReportData(processedReport);
 
       if (processedReport.length === 0 && localData.length > 0) {
-        // This case is handled by processDataForReport toast if no data for selected clients
+        // This case is handled by processDataForReport toast if no data for selected primary clients
       } else if (processedReport.length === 0) {
         // Handled by the no local data check above
       }
@@ -169,13 +185,14 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
   };
 
   useEffect(() => {
-    if (selectedDate && isValid(selectedDate) && selectedClients.length > 0) {
+    if (selectedDate && isValid(selectedDate) && primarySelectedClients.length > 0) {
       handleGenerateReport();
-    } else if (selectedClients.length === 0) {
+    } else if (primarySelectedClients.length === 0) {
         setReportData([]);
+        setSelectedActiveClientCounts([]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate, selectedClients]);
+  }, [selectedDate, primarySelectedClients]);
 
   const handleSort = (key: SortKey) => {
     setSortConfig(prevConfig => {
@@ -186,6 +203,11 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
     });
   };
 
+  const uniqueActiveCountsForFilter = useMemo(() => {
+    const counts = new Set(reportData.map(row => row.activeSelectedClientCount));
+    return Array.from(counts).sort((a, b) => a - b);
+  }, [reportData]);
+
   const sortedAndFilteredReportData = useMemo(() => {
     let dataToDisplay = [...reportData];
 
@@ -195,12 +217,17 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
       );
     }
 
+    if (selectedActiveClientCounts.length > 0) {
+      dataToDisplay = dataToDisplay.filter(row =>
+        selectedActiveClientCounts.includes(row.activeSelectedClientCount)
+      );
+    }
+
     if (sortConfig.key) {
       dataToDisplay.sort((a, b) => {
         let valA = a[sortConfig.key];
         let valB = b[sortConfig.key];
 
-        // Handle cases where values might be undefined or null for sorting
         if (valA == null) valA = sortConfig.direction === 'asc' ? Infinity : -Infinity;
         if (valB == null) valB = sortConfig.direction === 'asc' ? Infinity : -Infinity;
 
@@ -211,7 +238,6 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
           comparison = valA - valB;
         }
 
-        // Secondary sort by city name if primary sort key is activeSelectedClientCount and counts are equal
         if (sortConfig.key === 'activeSelectedClientCount' && comparison === 0) {
           comparison = a.city.localeCompare(b.city);
         }
@@ -219,17 +245,14 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
         return sortConfig.direction === 'asc' ? comparison : comparison * -1;
       });
     } else {
-      // Default sort if no interactive sort is applied by user (initial sort by active count)
       dataToDisplay.sort((a, b) => {
         const countComparison = (b.activeSelectedClientCount ?? 0) - (a.activeSelectedClientCount ?? 0);
         if (countComparison !== 0) return countComparison;
         return a.city.localeCompare(b.city);
       });
     }
-
-
     return dataToDisplay;
-  }, [reportData, citySearchTerm, sortConfig]);
+  }, [reportData, citySearchTerm, sortConfig, selectedActiveClientCounts]);
 
   const SortIndicator = ({ columnKey }: { columnKey: SortKey }) => {
     if (sortConfig.key !== columnKey) return null;
@@ -241,7 +264,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
       <Card>
         <CardHeader>
           <CardTitle className="text-xl font-semibold">Report Filters</CardTitle>
-          <CardDescription className="text-sm text-muted-foreground">Select date and clients to analyze from local data.</CardDescription>
+          <CardDescription className="text-sm text-muted-foreground">Select date and primary clients to analyze from local data.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
@@ -250,14 +273,14 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
               <DatePicker id="report-date" date={selectedDate} onDateChange={handleDateChange} disabled={isLoading} />
             </div>
             <div>
-              <Label>Clients</Label>
+              <Label>Primary Clients for Analysis</Label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2 border rounded-md">
                 {ALL_CLIENT_NAMES.map(client => (
                   <div key={client} className="flex items-center space-x-2">
                     <Checkbox
                       id={`client-${client}`}
-                      checked={selectedClients.includes(client)}
-                      onCheckedChange={(checked) => handleClientSelectionChange(client, !!checked)}
+                      checked={primarySelectedClients.includes(client)}
+                      onCheckedChange={(checked) => handlePrimaryClientSelectionChange(client, !!checked)}
                       disabled={isLoading}
                     />
                     <Label htmlFor={`client-${client}`} className="text-sm font-normal">
@@ -268,7 +291,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
               </div>
             </div>
           </div>
-           <Button onClick={handleGenerateReport} disabled={isLoading || selectedClients.length === 0} className="w-full sm:w-auto mt-4">
+           <Button onClick={handleGenerateReport} disabled={isLoading || primarySelectedClients.length === 0} className="w-full sm:w-auto mt-4">
             {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
             Generate Report
           </Button>
@@ -287,10 +310,10 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
           <CardHeader>
             <CardTitle className="text-xl font-semibold">City Client Activity &amp; Top Demand Areas</CardTitle>
             <CardDescription className="text-sm text-muted-foreground">
-              Report for {selectedDate && isValid(selectedDate) ? format(selectedDate, 'PPP') : 'selected date'} using selected clients.
+              Report for {selectedDate && isValid(selectedDate) ? format(selectedDate, 'PPP') : 'selected date'} using selected primary clients.
             </CardDescription>
              <div className="pt-2">
-              <Label htmlFor="city-search">Filter by City</Label>
+              <Label htmlFor="city-search">Filter by City Name</Label>
               <Input
                 id="city-search"
                 placeholder="Enter city name to filter..."
@@ -311,41 +334,75 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
                       </Button>
                     </TableHead>
                     <TableHead>
-                       <Button variant="ghost" onClick={() => handleSort('activeSelectedClientCount')} className="px-0 hover:bg-transparent text-center w-full">
-                        Active Clients <SortIndicator columnKey="activeSelectedClientCount" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" onClick={() => handleSort('activeSelectedClientCount')} className="px-0 hover:bg-transparent text-center">
+                          Active Clients <SortIndicator columnKey="activeSelectedClientCount" />
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0" disabled={uniqueActiveCountsForFilter.length === 0}>
+                              <Filter className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start">
+                            <DropdownMenuLabel>Filter by Active Client Count</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            {uniqueActiveCountsForFilter.map(count => (
+                              <DropdownMenuCheckboxItem
+                                key={count}
+                                checked={selectedActiveClientCounts.includes(count)}
+                                onCheckedChange={() => handleActiveClientCountFilterChange(count)}
+                              >
+                                {count} client(s)
+                              </DropdownMenuCheckboxItem>
+                            ))}
+                             {selectedActiveClientCounts.length > 0 && (
+                                <>
+                                <DropdownMenuSeparator />
+                                <Button 
+                                    variant="ghost" 
+                                    className="w-full justify-start text-xs h-auto py-1 px-2" 
+                                    onClick={() => setSelectedActiveClientCounts([])}
+                                >
+                                    Clear Active Count Filter
+                                </Button>
+                                </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </TableHead>
-                    {selectedClients.includes('Blinkit') && <TableHead className="text-center">Blinkit</TableHead>}
-                    {selectedClients.includes('Zepto') && <TableHead className="text-center">Zepto</TableHead>}
-                    {selectedClients.includes('SwiggyFood') && <TableHead className="text-center">SwiggyFood</TableHead>}
-                    {selectedClients.includes('SwiggyIM') && <TableHead className="text-center">SwiggyIM</TableHead>}
+                    {primarySelectedClients.includes('Blinkit') && <TableHead className="text-center">Blinkit</TableHead>}
+                    {primarySelectedClients.includes('Zepto') && <TableHead className="text-center">Zepto</TableHead>}
+                    {primarySelectedClients.includes('SwiggyFood') && <TableHead className="text-center">SwiggyFood</TableHead>}
+                    {primarySelectedClients.includes('SwiggyIM') && <TableHead className="text-center">SwiggyIM</TableHead>}
                     <TableHead>High Demand Areas (Top 3 from Selected Clients)</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {sortedAndFilteredReportData
-                    .filter(row => row && typeof row === 'object' && row.city) // Defensive filter
+                    .filter(row => row && typeof row === 'object' && row.city) 
                     .map((row) => {
                       return (
                         <TableRow key={row.city}>
                           <TableCell className="font-medium">{row.city ?? 'N/A'}</TableCell>
                           <TableCell className="text-center">{row.activeSelectedClientCount ?? 0}</TableCell>
-                          {selectedClients.includes('Blinkit') && (
+                          {primarySelectedClients.includes('Blinkit') && (
                             <TableCell className="text-center">
                               {row.blinkit ? <CheckCircle2 className="h-5 w-5 text-green-500 inline-block" /> : <XCircle className="h-5 w-5 text-red-500 inline-block" />}
                             </TableCell>
                           )}
-                          {selectedClients.includes('Zepto') && (
+                          {primarySelectedClients.includes('Zepto') && (
                             <TableCell className="text-center">
                               {row.zepto ? <CheckCircle2 className="h-5 w-5 text-green-500 inline-block" /> : <XCircle className="h-5 w-5 text-red-500 inline-block" />}
                             </TableCell>
                           )}
-                           {selectedClients.includes('SwiggyFood') && (
+                           {primarySelectedClients.includes('SwiggyFood') && (
                             <TableCell className="text-center">
                               {row.swiggyFood ? <CheckCircle2 className="h-5 w-5 text-green-500 inline-block" /> : <XCircle className="h-5 w-5 text-red-500 inline-block" />}
                             </TableCell>
                           )}
-                          {selectedClients.includes('SwiggyIM') && (
+                          {primarySelectedClients.includes('SwiggyIM') && (
                             <TableCell className="text-center">
                               {row.swiggyIM ? <CheckCircle2 className="h-5 w-5 text-green-500 inline-block" /> : <XCircle className="h-5 w-5 text-red-500 inline-block" />}
                             </TableCell>
@@ -357,30 +414,30 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
                 </TableBody>
               </Table>
             </ScrollArea>
-             {sortedAndFilteredReportData.length === 0 && citySearchTerm && (
+             {sortedAndFilteredReportData.length === 0 && (citySearchTerm || selectedActiveClientCounts.length > 0) && (
               <p className="text-center text-sm text-muted-foreground py-4">
-                No cities match your filter "{citySearchTerm}".
+                No cities match your current filter criteria.
               </p>
             )}
           </CardContent>
         </Card>
       )}
 
-      {!isLoading && reportData.length === 0 && selectedClients.length > 0 && (
+      {!isLoading && reportData.length === 0 && primarySelectedClients.length > 0 && (
         <Card className="mt-6">
           <CardContent className="pt-6">
             <p className="text-center text-sm text-muted-foreground">
-              No data to display. Select a date and clients, then click "Generate Report".
-              Ensure local data is available for the selected date.
+              No data to display. Select a date and primary clients, then click "Generate Report".
+              Ensure local data is available for the selected date and selected primary clients.
             </p>
           </CardContent>
         </Card>
       )}
-      {!isLoading && selectedClients.length === 0 && (
+      {!isLoading && primarySelectedClients.length === 0 && (
          <Card className="mt-6">
           <CardContent className="pt-6">
             <p className="text-center text-sm text-muted-foreground">
-              Please select at least one client to generate the report.
+              Please select at least one primary client to generate the report.
             </p>
           </CardContent>
         </Card>
