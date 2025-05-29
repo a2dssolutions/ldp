@@ -8,19 +8,25 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { triggerManualSyncAction, syncLocalDemandDataForDateAction, saveAppSettingsAction, getAppSettingsAction } from '@/lib/actions';
+import {
+  triggerManualSyncAction,
+  syncLocalDemandDataForDateAction,
+  saveAppSettingsAction,
+  getAppSettingsAction,
+  testDataSourcesAction,
+} from '@/lib/actions';
 import {
   getSyncStatus,
   performLocalSyncOperations,
   clearAllLocalDemandData,
-  getTotalLocalRecordsCount 
+  getTotalLocalRecordsCount,
 } from '@/lib/services/demand-data-service';
 import type { AppSettings } from '@/lib/services/config-service';
-import type { LocalSyncMeta } from '@/lib/types';
-import { Loader2, RefreshCw, Database, FileText, CheckCircle, XCircle, Info, Trash2, DownloadCloud, PlusCircle, ListFilter } from 'lucide-react';
+import type { LocalSyncMeta, DataSourceTestResult, ClientHealthStatus, HealthCheckStatus } from '@/lib/types';
+import { Loader2, RefreshCw, Database, FileText, CheckCircle, XCircle, Info, Trash2, DownloadCloud, PlusCircle, ListFilter, AlertTriangle, HardDrive, Activity } from 'lucide-react';
 import { format, isValid } from 'date-fns';
 import { useLiveQuery } from 'dexie-react-hooks';
-
+import { Badge } from '@/components/ui/badge';
 
 interface AdminPanelClientProps {
   initialSettings: AppSettings;
@@ -43,6 +49,8 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
   const [newBlacklistedCity, setNewBlacklistedCity] = useState('');
   const [isSavingSettings, setIsSavingSettings] = useState(false);
 
+  const [healthCheckResults, setHealthCheckResults] = useState<DataSourceTestResult | null>(null);
+  const [isTestingSources, setIsTestingSources] = useState(false);
 
   const localSyncMeta = useLiveQuery(
     () => getSyncStatus(),
@@ -53,13 +61,12 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
   const totalLocalRecords = useLiveQuery(
     () => getTotalLocalRecordsCount(),
     [],
-    0 
+    0
   );
 
   const lastLocalSyncDate = useMemo(() => {
     return localSyncMeta?.timestamp ? new Date(localSyncMeta.timestamp) : null;
   }, [localSyncMeta]);
-
 
   useEffect(() => {
     const storedSyncInfo = localStorage.getItem('lastAdminFirestoreSyncInfo');
@@ -68,7 +75,6 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
       if (parsedInfo.timestamp) parsedInfo.timestamp = new Date(parsedInfo.timestamp);
       setLastFirestoreSyncInfo(parsedInfo);
     }
-    // Update currentSettings if initialSettings prop changes (e.g., after a save from another component/tab)
     setCurrentSettings(initialSettings);
   }, [initialSettings]);
 
@@ -183,6 +189,46 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
     setIsSavingSettings(false);
   };
 
+  const handleTestSourceConnections = async () => {
+    setIsTestingSources(true);
+    setHealthCheckResults(null);
+    toast({ title: "Testing Data Sources...", description: "Attempting to connect and validate configured Google Sheets." });
+    try {
+      const results = await testDataSourcesAction();
+      setHealthCheckResults(results);
+      const failures = results.filter(r => r.status !== 'success').length;
+      if (failures > 0) {
+        toast({ title: "Source Tests Completed with Issues", description: `${failures} source(s) have issues. See details below.`, variant: 'default' });
+      } else {
+        toast({ title: "All Data Sources Healthy!", description: "Successfully connected and validated all configured sources." });
+      }
+    } catch (error) {
+      console.error("Error testing data sources:", error);
+      toast({ title: "Error During Source Test", description: `An unexpected error occurred: ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
+       // Set a generic error for all if the action fails
+      setHealthCheckResults(initialSettings.sheetUrls ? (Object.keys(initialSettings.sheetUrls) as Array<keyof typeof initialSettings.sheetUrls>).map(client => ({
+        client,
+        status: 'url_error' as HealthCheckStatus,
+        message: 'Failed to run tests.',
+        url: initialSettings.sheetUrls[client]
+      })) : []);
+    } finally {
+      setIsTestingSources(false);
+    }
+  };
+  
+  const getStatusIcon = (status: HealthCheckStatus) => {
+    switch (status) {
+      case 'success': return <CheckCircle className="h-5 w-5 text-green-500" />;
+      case 'url_error': return <XCircle className="h-5 w-5 text-red-500" />;
+      case 'header_mismatch': return <AlertTriangle className="h-5 w-5 text-yellow-500" />;
+      case 'empty_sheet': return <Info className="h-5 w-5 text-blue-500" />;
+      case 'not_configured': return <Info className="h-5 w-5 text-gray-400" />;
+      case 'parse_error': return <AlertTriangle className="h-5 w-5 text-orange-500" />;
+      case 'pending': return <Loader2 className="h-5 w-5 animate-spin text-primary" />;
+      default: return <Info className="h-5 w-5 text-muted-foreground" />;
+    }
+  };
 
   return (
     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -192,7 +238,7 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
           <CardDescription>Trigger sync from Google Sheets to Firestore (Cloud Database).</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Button onClick={handleManualFirestoreSync} disabled={isSyncingFirestore || isSyncingTodayToLocal || isSavingSettings} className="w-full">
+          <Button onClick={handleManualFirestoreSync} disabled={isSyncingFirestore || isSyncingTodayToLocal || isSavingSettings || isTestingSources} className="w-full">
             {isSyncingFirestore ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
             Sync Sheets to Firestore
           </Button>
@@ -229,11 +275,11 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
               Total Records in Local Cache: {totalLocalRecords ?? 'Loading...'}
             </p>
           </div>
-          <Button onClick={handleSyncTodayToLocalDB} variant="outline" disabled={isSyncingTodayToLocal || isSyncingFirestore || isSavingSettings} className="w-full">
+          <Button onClick={handleSyncTodayToLocalDB} variant="outline" disabled={isSyncingTodayToLocal || isSyncingFirestore || isSavingSettings || isTestingSources} className="w-full">
             {isSyncingTodayToLocal ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DownloadCloud className="mr-2 h-4 w-4" />}
             Sync Today from Cloud to Local
           </Button>
-          <Button onClick={handleClearLocalData} variant="destructive" disabled={isClearingLocal || isSyncingTodayToLocal || isSyncingFirestore || isSavingSettings} className="w-full">
+          <Button onClick={handleClearLocalData} variant="destructive" disabled={isClearingLocal || isSyncingTodayToLocal || isSyncingFirestore || isSavingSettings || isTestingSources} className="w-full">
             {isClearingLocal ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
             Clear All Local Data
           </Button>
@@ -253,9 +299,9 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
               placeholder="Enter city name to blacklist"
               value={newBlacklistedCity}
               onChange={(e) => setNewBlacklistedCity(e.target.value)}
-              disabled={isSavingSettings}
+              disabled={isSavingSettings || isTestingSources}
             />
-            <Button onClick={handleAddBlacklistedCity} disabled={isSavingSettings || !newBlacklistedCity.trim()}>
+            <Button onClick={handleAddBlacklistedCity} disabled={isSavingSettings || !newBlacklistedCity.trim() || isTestingSources}>
               {isSavingSettings && !newBlacklistedCity.trim() ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />}
               Add
             </Button>
@@ -287,7 +333,53 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
         <CardFooter><p className="text-xs text-muted-foreground">Blacklist is stored in Firestore and affects all users.</p></CardFooter>
       </Card>
 
-       {/* Placeholder for System Logs Card, can be expanded later */}
+      <Card className="lg:col-span-2 xl:col-span-3">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5 text-primary" /> Data Source Health Checks</CardTitle>
+          <CardDescription>Test connectivity and header validity for configured Google Sheet sources.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Button onClick={handleTestSourceConnections} disabled={isTestingSources || isSyncingFirestore || isSyncingTodayToLocal} className="w-full sm:w-auto">
+            {isTestingSources ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <HardDrive className="mr-2 h-4 w-4" />}
+            Test All Data Sources
+          </Button>
+          {healthCheckResults && (
+            <ScrollArea className="mt-4 max-h-72 w-full rounded-md border">
+              <div className="p-4 space-y-3">
+                {healthCheckResults.map((result) => (
+                  <Card key={result.client} className="shadow-none">
+                    <CardHeader className="p-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {getStatusIcon(result.status)}
+                          <CardTitle className="text-base">{result.client}</CardTitle>
+                        </div>
+                        <Badge variant={result.status === 'success' ? 'default' : result.status === 'url_error' || result.status === 'header_mismatch' || result.status === 'parse_error' ? 'destructive' : 'secondary'}>
+                          {result.status.replace('_', ' ').toUpperCase()}
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    {result.message && (
+                      <CardContent className="p-3 pt-0 text-xs">
+                        <p className="text-muted-foreground">{result.message}</p>
+                        {result.status === 'header_mismatch' && (
+                          <>
+                            <p className="mt-1"><strong>Expected Headers:</strong> {result.expectedHeaders?.join(', ') || 'N/A'}</p>
+                            <p><strong>Found Headers:</strong> {result.foundHeaders?.join(', ') || 'N/A'}</p>
+                          </>
+                        )}
+                         {result.url && <p className="mt-1 truncate"><strong>URL:</strong> <a href={result.url} target="_blank" rel="noopener noreferrer" className="underline text-primary hover:text-primary/80">{result.url}</a></p>}
+                      </CardContent>
+                    )}
+                  </Card>
+                ))}
+              </div>
+            </ScrollArea>
+          )}
+        </CardContent>
+        <CardFooter><p className="text-xs text-muted-foreground">Helps diagnose issues with data ingestion from Google Sheets.</p></CardFooter>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5 text-primary" /> System Logs</CardTitle>

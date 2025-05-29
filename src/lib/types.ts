@@ -1,3 +1,4 @@
+
 export type ClientName = 'Zepto' | 'Blinkit' | 'SwiggyFood' | 'SwiggyIM';
 export const ALL_CLIENT_NAMES: ClientName[] = ['Zepto', 'Blinkit', 'SwiggyFood', 'SwiggyIM'];
 
@@ -53,6 +54,19 @@ export interface CityClientMatrixRow {
   zepto: boolean;
   swiggyFood: boolean;
   swiggyIM: boolean;
-  highDemandAreas: string; // e.g., "Area1 (Score1), Area2 (Score2), Area3 (Score3)"
-  activeSelectedClientCount: number; // Now mandatory for sorting
+  highDemandAreas: string;
+  activeSelectedClientCount: number;
 }
+
+export type HealthCheckStatus = 'success' | 'url_error' | 'header_mismatch' | 'empty_sheet' | 'not_configured' | 'parse_error' | 'pending' | 'initial';
+
+export interface ClientHealthStatus {
+  client: ClientName;
+  status: HealthCheckStatus;
+  message?: string;
+  expectedHeaders?: string[];
+  foundHeaders?: string[];
+  url?: string;
+}
+
+export type DataSourceTestResult = ClientHealthStatus[];

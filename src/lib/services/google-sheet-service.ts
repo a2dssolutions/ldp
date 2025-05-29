@@ -1,7 +1,8 @@
 
 'use server';
 
-import type { RawSheetData, MergedSheetData, ClientName } from '@/lib/types';
+import type { RawSheetData, MergedSheetData, ClientName, ClientHealthStatus, DataSourceTestResult } from '@/lib/types';
+import { ALL_CLIENT_NAMES } from '@/lib/types';
 
 interface ClientSheetConfig {
   idField: string | ((row: Record<string, string>, index: number, client: ClientName) => string);
@@ -9,6 +10,8 @@ interface ClientSheetConfig {
   areaField: string;
   demandScoreField: string | ((row: Record<string, string>) => number);
   rowFilter?: (row: Record<string, string>, headers: string[]) => boolean;
+  // Required headers for health check (subset of fields above that are strings)
+  requiredHeadersForHealthCheck?: string[];
 }
 
 export interface ClientFetchResult {
@@ -19,23 +22,23 @@ export interface ClientFetchResult {
 }
 
 export interface FetchAllSheetsDataActionResult {
-  allMergedData: MergedSheetData[]; // Contains data only for successfully fetched clients
-  clientResults: ClientFetchResult[]; // Contains status for ALL clients attempted
+  allMergedData: MergedSheetData[];
+  clientResults: ClientFetchResult[];
 }
 
-// Client-specific parsing configurations
 const clientConfigs: Record<ClientName, Omit<ClientSheetConfig, 'url'>> = {
   Blinkit: {
     idField: (row, index, client) => row['Store id']?.trim() || `${client.toLowerCase()}-${index}-${Date.now()}`,
     cityField: 'City',
     areaField: 'Area',
     demandScoreField: 'Daily demand',
-     rowFilter: (row) => {
+    rowFilter: (row) => {
       return !!row['Store id']?.trim() &&
              !!row['City']?.trim() &&
              row['Daily demand'] !== undefined && row['Daily demand']?.trim() !== '' &&
              !!row['Area']?.trim();
     },
+    requiredHeadersForHealthCheck: ['Store id', 'City', 'Area', 'Daily demand'],
   },
   SwiggyFood: {
     idField: (row, index, client) => `${client.toLowerCase()}-${row['City Name']?.trim()}-${row['Area']?.trim()}-${index}`.replace(/\s+/g, '_') || `${client.toLowerCase()}-gen-${index}-${Date.now()}`,
@@ -43,6 +46,7 @@ const clientConfigs: Record<ClientName, Omit<ClientSheetConfig, 'url'>> = {
     areaField: 'Area',
     demandScoreField: 'Food',
     rowFilter: (row, headers) => !!row[headers[0]] && row[headers[0]] !== headers[0] && !!row['City Name']?.trim() && !!row['Area']?.trim() && row['Food'] !== undefined,
+    requiredHeadersForHealthCheck: ['City Name', 'Area', 'Food'],
   },
   SwiggyIM: {
     idField: (row, index, client) => `${client.toLowerCase()}-${row['City Name']?.trim()}-${row['Area']?.trim()}-${index}`.replace(/\s+/g, '_') || `${client.toLowerCase()}-gen-${index}-${Date.now()}`,
@@ -50,11 +54,12 @@ const clientConfigs: Record<ClientName, Omit<ClientSheetConfig, 'url'>> = {
     areaField: 'Area',
     demandScoreField: 'Instamart',
     rowFilter: (row, headers) => !!row[headers[0]] && row[headers[0]] !== headers[0] && !!row['City Name']?.trim() && !!row['Area']?.trim() && row['Instamart'] !== undefined,
+    requiredHeadersForHealthCheck: ['City Name', 'Area', 'Instamart'],
   },
   Zepto: {
-    idField: (row, index, client) => row['Store']?.trim() || `${client.toLowerCase()}-${index}-${Date.now()}`,
+    idField: (row) => row['Store']?.trim() || `zepto-gen-${Date.now()}`,
     cityField: 'City',
-    areaField: 'Store', // Using 'Store' as area for Zepto as per sample
+    areaField: 'Store',
     demandScoreField: (row) => {
       const morningFT = parseInt(row['Morning_FT Demand'], 10) || 0;
       const morningPT = parseInt(row['Morning_PT Demand'], 10) || 0;
@@ -63,10 +68,11 @@ const clientConfigs: Record<ClientName, Omit<ClientSheetConfig, 'url'>> = {
       return morningFT + morningPT + eveningFT + eveningPT;
     },
     rowFilter: (row) => !!row['Store']?.trim() && !!row['City']?.trim(),
+    requiredHeadersForHealthCheck: ['Store', 'City', 'Morning_FT Demand', 'Morning_PT Demand', 'Evening_FT Demand', 'Evening_PT Demand'],
   },
 };
 
-function parseCSV(csvText: string): { headers: string[], data: Record<string, string>[] } {
+function parseCSV(csvText: string, forHealthCheck: boolean = false): { headers: string[], data: Record<string, string>[] } {
   const lines = csvText.trim().split(/\r?\n/);
   if (lines.length === 0) return { headers: [], data: [] };
 
@@ -87,7 +93,9 @@ function parseCSV(csvText: string): { headers: string[], data: Record<string, st
 
   if (headers.length === 0) return { headers: [], data: [] };
 
-  const dataRows = lines.slice(1);
+  // For health check, we might only need headers, or just a few lines
+  const dataRows = forHealthCheck ? lines.slice(1, 2) : lines.slice(1); // Slice 1 for one data row, or all for full parse
+  
   const data = dataRows
     .map(line => {
       if (line.trim() === '') return null; 
@@ -144,13 +152,7 @@ async function fetchSheetDataForClient(client: ClientName, sheetUrl: string): Pr
         return { data: [], result: { client, status: 'empty', message: msg, rowCount: 0 }};
     }
     
-    // Header validation
-    const requiredStringHeaders: string[] = [];
-    if (typeof config.cityField === 'string') requiredStringHeaders.push(config.cityField);
-    if (typeof config.areaField === 'string') requiredStringHeaders.push(config.areaField);
-    if (typeof config.demandScoreField === 'string') requiredStringHeaders.push(config.demandScoreField);
-    // ID field is trickier as it can be a function
-
+    const requiredStringHeaders: string[] = config.requiredHeadersForHealthCheck || [];
     for (const headerName of requiredStringHeaders) {
         if (!parsedHeaders.includes(headerName)) {
             const errorMsg = `Missing required header "${headerName}" in sheet for client: ${client}. Available headers: ${parsedHeaders.join(', ')}`;
@@ -171,7 +173,7 @@ async function fetchSheetDataForClient(client: ClientName, sheetUrl: string): Pr
     const clientData = filteredRows.map((row, index) => {
       const id = typeof config.idField === 'function' 
         ? config.idField(row, index, client) 
-        : row[config.idField]?.trim() || `${client.toLowerCase()}-gen-${index}-${Date.now()}`;
+        : row[config.idField as string]?.trim() || `${client.toLowerCase()}-gen-${index}-${Date.now()}`;
       
       const city = row[config.cityField]?.trim() || '';
       const area = row[config.areaField]?.trim() || '';
@@ -215,10 +217,9 @@ async function fetchSheetDataForClient(client: ClientName, sheetUrl: string): Pr
   } catch (error) {
     const errorMsg = `Error processing sheet for client ${client}: ${error instanceof Error ? error.message : 'An unknown error occurred'}`;
     console.error(errorMsg, error); 
-    return { data: [], result: { client, status: 'error', message: errorMsg.substring(0, 200), rowCount: 0 }}; // Truncate long messages
+    return { data: [], result: { client, status: 'error', message: errorMsg.substring(0, 200), rowCount: 0 }};
   }
 }
-
 
 export async function fetchAllSheetsData(
     sheetUrlsByName: Record<ClientName, string>, 
@@ -227,7 +228,7 @@ export async function fetchAllSheetsData(
   
   const clientsToProcess = clientsToFetch && clientsToFetch.length > 0 
     ? clientsToFetch 
-    : Object.keys(sheetUrlsByName) as ClientName[];
+    : ALL_CLIENT_NAMES;
 
   let allMergedData: MergedSheetData[] = [];
   const clientResults: ClientFetchResult[] = [];
@@ -251,4 +252,83 @@ export async function fetchAllSheetsData(
   return { allMergedData, clientResults };
 }
 
+// --- Health Check Service ---
+export async function testClientDataSource(
+  clientName: ClientName,
+  sheetUrl: string
+): Promise<ClientHealthStatus> {
+  const result: ClientHealthStatus = { client: clientName, status: 'pending', url: sheetUrl };
+  const config = clientConfigs[clientName];
+
+  if (!config) {
+    result.status = 'not_configured';
+    result.message = `No parsing configuration found for client: ${clientName}`;
+    return result;
+  }
+  if (!sheetUrl || sheetUrl.trim() === '') {
+    result.status = 'not_configured';
+    result.message = `No URL configured for client: ${clientName}`;
+    return result;
+  }
+
+  try {
+    const response = await fetch(sheetUrl, { cache: 'no-store' });
+    if (!response.ok) {
+      result.status = 'url_error';
+      result.message = `HTTP Error: ${response.status} ${response.statusText}`;
+      return result;
+    }
+    const csvText = await response.text();
+    if (!csvText || csvText.trim() === '') {
+      result.status = 'empty_sheet';
+      result.message = 'Fetched CSV is empty.';
+      return result;
+    }
+
+    const { headers: parsedHeaders, data: parsedRows } = parseCSV(csvText, true); // true for health check (limited rows)
+
+    if (parsedHeaders.length === 0) {
+      result.status = 'parse_error';
+      result.message = 'Could not parse headers from CSV.';
+      return result;
+    }
+    result.foundHeaders = parsedHeaders;
+
+    const expected = config.requiredHeadersForHealthCheck || [];
+    result.expectedHeaders = expected;
+    const missingHeaders = expected.filter(h => !parsedHeaders.includes(h));
+
+    if (missingHeaders.length > 0) {
+      result.status = 'header_mismatch';
+      result.message = `Missing headers: ${missingHeaders.join(', ')}.`;
+      return result;
+    }
+
+    if (parsedRows.length === 0 && csvText.trim().split(/\r?\n/).length > 1) {
+      result.status = 'empty_sheet';
+      result.message = 'Headers found, but no data rows in the sample.';
+      return result;
+    }
     
+    result.status = 'success';
+    result.message = 'Source looks healthy.';
+    return result;
+
+  } catch (error) {
+    result.status = 'url_error'; // Or a more generic 'test_error'
+    result.message = error instanceof Error ? error.message : 'An unknown error occurred during test.';
+    return result;
+  }
+}
+
+export async function testAllDataSourcesService(
+  sheetUrlsByName: Record<ClientName, string>
+): Promise<DataSourceTestResult> {
+  const results: DataSourceTestResult = [];
+  for (const client of ALL_CLIENT_NAMES) {
+    const urlForClient = sheetUrlsByName[client];
+    const clientStatus = await testClientDataSource(client, urlForClient);
+    results.push(clientStatus);
+  }
+  return results;
+}

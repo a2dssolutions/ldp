@@ -4,19 +4,20 @@
 import {
   fetchAllSheetsData as serviceFetchAllSheets,
   type ClientFetchResult,
+  testAllDataSourcesService,
 } from '@/lib/services/google-sheet-service';
 import {
   saveDemandDataToStore,
   clearAllDemandDataFromStore,
   getDemandDataFromFirestore,
   getHistoricalDemandDataFromFirestore,
-  calculateCityDemandSummary as serviceCalculateCityDemandSummary, // Corrected import
-  calculateClientDemandSummary as serviceCalculateClientDemandSummary, // Corrected import
-  calculateAreaDemandSummary as serviceCalculateAreaDemandSummary, // Corrected import
-  calculateMultiClientHotspots as serviceCalculateMultiClientHotspots, // Corrected import
+  calculateCityDemandSummary as serviceCalculateCityDemandSummary,
+  calculateClientDemandSummary as serviceCalculateClientDemandSummary,
+  calculateAreaDemandSummary as serviceCalculateAreaDemandSummary,
+  calculateMultiClientHotspots as serviceCalculateMultiClientHotspots,
 } from '@/lib/services/demand-data-service';
 import { getAppSettings as serviceGetAppSettings, saveAppSettings as serviceSaveAppSettings, type AppSettings } from '@/lib/services/config-service';
-import type { MergedSheetData, DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity, CityClientMatrixRow } from '@/lib/types'; // Removed unused ALL_CLIENT_NAMES import
+import type { MergedSheetData, DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity, CityClientMatrixRow, DataSourceTestResult } from '@/lib/types';
 import { format } from 'date-fns';
 
 // Sheet Ingestion Actions
@@ -125,107 +126,29 @@ export async function getClientDemandSummaryAction(data: DemandData[]): Promise<
 }
 
 export async function getAreaDemandSummaryAction(data: DemandData[]): Promise<AreaDemand[]> {
-  // For now, the dashboard uses client-side calculation for area demand.
-  // If server-side calculation is needed, this would call serviceCalculateAreaDemandSummary
-  console.warn("getAreaDemandSummaryAction called but currently not providing server-side calculation for dashboard use. Client-side calculation is used.");
-  return serviceCalculateAreaDemandSummary(data); // Call the service function
+  return serviceCalculateAreaDemandSummary(data);
 }
 
 export async function getMultiClientHotspotsAction(data: DemandData[], minClients?: number, minDemandPerClient?: number): Promise<MultiClientHotspotCity[]> {
-   // For now, the dashboard uses client-side calculation.
-  console.warn("getMultiClientHotspotsAction called but currently not providing server-side calculation for dashboard use. Client-side calculation is used.");
-  return serviceCalculateMultiClientHotspots(data, minClients, minDemandPerClient); // Call the service function
+  return serviceCalculateMultiClientHotspots(data, minClients, minDemandPerClient);
 }
 
-// Removed getCityClientMatrixAction as this logic is now client-side for City Analysis
-// If it were to remain server-side, it would look something like this:
-/*
-export async function getCityClientMatrixAction(date: string): Promise<CityClientMatrixRow[]> {
+// Data Source Health Check Action
+export async function testDataSourcesAction(): Promise<DataSourceTestResult> {
+  console.log("Action: Testing all data sources...");
   try {
-    const allDemandDataForDate = await getDemandDataAction({ date }, { bypassLimits: true });
-
-    if (!Array.isArray(allDemandDataForDate)) {
-      console.error("getCityClientMatrixAction: Fetched data (allDemandDataForDate) is not an array.");
-      return [];
-    }
-
-    const citiesData: Record<string, {
-      blinkit: boolean;
-      zepto: boolean;
-      swiggyFood: boolean;
-      swiggyIM: boolean;
-      areas: Record<string, number>; // areaName: totalDemand
-    }> = {};
-
-    for (const record of allDemandDataForDate) {
-      if (
-        !record ||
-        typeof record.city !== 'string' || record.city.trim() === '' ||
-        typeof record.area !== 'string' || record.area.trim() === '' ||
-        typeof record.client !== 'string' ||
-        typeof record.demandScore !== 'number' || isNaN(record.demandScore)
-      ) {
-        console.warn('getCityClientMatrixAction: Skipping malformed or incomplete record:', JSON.stringify(record).substring(0, 200));
-        continue;
-      }
-
-      const cityKey = record.city;
-      const areaKey = record.area;
-
-      if (!citiesData[cityKey]) {
-        citiesData[cityKey] = {
-          blinkit: false,
-          zepto: false,
-          swiggyFood: false,
-          swiggyIM: false,
-          areas: {},
-        };
-      }
-
-      const cityEntry = citiesData[cityKey];
-
-      if (record.client === 'Blinkit') cityEntry.blinkit = true;
-      else if (record.client === 'Zepto') cityEntry.zepto = true;
-      else if (record.client === 'SwiggyFood') cityEntry.swiggyFood = true;
-      else if (record.client === 'SwiggyIM') cityEntry.swiggyIM = true;
-      
-      cityEntry.areas[areaKey] = (cityEntry.areas[areaKey] || 0) + record.demandScore;
-    }
-
-    const resultMatrix: CityClientMatrixRow[] = [];
-    for (const cityName in citiesData) {
-      const cityInfo = citiesData[cityName]; 
-      
-      const sortedAreas = Object.entries(cityInfo.areas)
-        .map(([areaName, totalDemand]) => {
-            if (typeof areaName === 'string' && typeof totalDemand === 'number' && !isNaN(totalDemand)) {
-                return { areaName, totalDemand };
-            }
-            console.warn(`getCityClientMatrixAction: Malformed area entry for city ${cityName}: [${areaName}, ${totalDemand}]`);
-            return null; 
-        })
-        .filter(item => item !== null) as { areaName: string; totalDemand: number }[]; 
-      
-      sortedAreas.sort((a, b) => b.totalDemand - a.totalDemand);
-
-      const top3AreasString = sortedAreas.slice(0, 3)
-        .map(a => `${a.areaName} (${a.totalDemand})`)
-        .join(', ') || 'N/A';
-
-      resultMatrix.push({
-        city: cityName,
-        blinkit: cityInfo.blinkit,
-        zepto: cityInfo.zepto,
-        swiggyFood: cityInfo.swiggyFood,
-        swiggyIM: cityInfo.swiggyIM,
-        highDemandAreas: top3AreasString,
-      });
-    }
-    
-    return resultMatrix.sort((a,b) => a.city.localeCompare(b.city));
+    const appSettings = await serviceGetAppSettings();
+    const results = await testAllDataSourcesService(appSettings.sheetUrls);
+    console.log("Action: Data source tests completed.", results);
+    return results;
   } catch (error) {
-    console.error("Error in getCityClientMatrixAction:", error);
-    return []; 
+    console.error("Action: Error testing data sources:", error);
+    // Return a generic error state for all clients if the action itself fails
+    const clientNames: ClientName[] = ['Zepto', 'Blinkit', 'SwiggyFood', 'SwiggyIM']; // Assuming ALL_CLIENT_NAMES is available
+    return clientNames.map(client => ({
+      client,
+      status: 'url_error', // or a new 'test_action_failed' status
+      message: `Failed to execute tests: ${error instanceof Error ? error.message : String(error)}`,
+    }));
   }
 }
-*/
