@@ -24,7 +24,7 @@ import type { DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, Mult
 import type { LocalDemandRecord } from '@/lib/dexie';
 import { format, parseISO, isToday, isValid, startOfDay } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
-import { Users, MapPin, TrendingUp, Zap, Info, Search, Eye, FileText } from 'lucide-react';
+import { Users, MapPin, TrendingUp, Zap, Info, Search, Eye, FileText, List, Columns } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -81,6 +81,9 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
   
   const [isClientRendered, setIsClientRendered] = useState(false);
   const [dynamicPieRadius, setDynamicPieRadius] = useState(90);
+  const [showHotspotTableView, setShowHotspotTableView] = useState(false);
+  const [showAreaTableView, setShowAreaTableView] = useState(false);
+
 
   useEffect(() => {
     setIsClientRendered(true);
@@ -107,8 +110,6 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
           showSyncMessage = true;
           message = `No local data for today (${selectedDateString}). Use Admin Panel to sync if needed.`;
         }
-        // No longer automatically syncing if data for today is present, even if lastSyncedDate is not today
-        // User explicitly syncs today's data via Admin Panel if they suspect it's stale.
       } else { // For past dates
         if (!dataPresentForSelectedDate) {
           showSyncMessage = true;
@@ -213,7 +214,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
           <Info className="h-4 w-4" />
           <AlertTitle>Sync Status</AlertTitle>
           <AlertDescription>
-            {syncStatusMessage}
+            {syncStatusMessage} Use Admin Panel to sync if needed.
           </AlertDescription>
         </Alert>
       )}
@@ -257,7 +258,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                           fontSize: '10px',
                           fill: 'hsl(var(--foreground))',
                           position: 'inside',
-                          formatter: (value, entry) => { // value is totalDemand for this slice, entry is the full data object
+                          formatter: (value, entry) => { 
                             if (entry.percent < 0.05 && clientDemandForChart.length > 3) return '';
                             return `${entry.name}: ${value} (${(entry.percent * 100).toFixed(0)}%)`;
                           }
@@ -289,28 +290,59 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                     <CardDescription className="text-sm text-muted-foreground">Highest demand areas (Top 5 from local data).</CardDescription>
                 </div>
                 {areaDemand.length > 5 && (
-                    <Dialog>
+                    <Dialog onOpenChange={() => setShowAreaTableView(false)}>
                         <DialogTrigger asChild>
                             <Button variant="outline" size="sm" className="ml-auto gap-1.5 text-sm">
                                 <Eye className="h-4 w-4" /> View All
                             </Button>
                         </DialogTrigger>
-                        <DialogContent className="sm:max-w-[625px]">
+                        <DialogContent className="sm:max-w-[725px]">
                             <DialogHeader>
-                                <DialogTitle>All Top Performing Areas</DialogTitle>
+                                <div className="flex justify-between items-center">
+                                    <DialogTitle>All Top Performing Areas</DialogTitle>
+                                    <Button variant="outline" size="sm" onClick={() => setShowAreaTableView(prev => !prev)}>
+                                        {showAreaTableView ? <List className="mr-2 h-4 w-4" /> : <Columns className="mr-2 h-4 w-4" />}
+                                        {showAreaTableView ? 'View as List' : 'View as Table'}
+                                    </Button>
+                                </div>
                                 <DialogDescription>
                                     Full list of areas sorted by total demand for the selected date and filters.
                                 </DialogDescription>
                             </DialogHeader>
                             <ScrollArea className="h-[400px] w-full rounded-md border p-4">
-                                <ul className="space-y-3">
-                                    {areaDemand.map((item, index) => (
-                                    <li key={`${item.city}-${item.area}-${index}`} className="flex justify-between items-center p-2 rounded-md bg-card border">
-                                        <div><p className="font-semibold text-sm">{item.area}</p><p className="text-xs text-muted-foreground">{item.city} - Clients: {item.clients.join(', ')}</p></div>
-                                        <Badge variant={getDemandTier(item.totalDemand).variant}>{item.totalDemand}</Badge>
-                                    </li>
-                                    ))}
-                                </ul>
+                                {showAreaTableView ? (
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Area</TableHead>
+                                                <TableHead>City</TableHead>
+                                                <TableHead>Clients</TableHead>
+                                                <TableHead className="text-right">Total Demand</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {areaDemand.map((item, index) => (
+                                            <TableRow key={`${item.city}-${item.area}-${index}-table`}>
+                                                <TableCell className="font-medium">{item.area}</TableCell>
+                                                <TableCell>{item.city}</TableCell>
+                                                <TableCell className="text-xs">{item.clients.join(', ')}</TableCell>
+                                                <TableCell className="text-right">
+                                                    <Badge variant={getDemandTier(item.totalDemand).variant}>{item.totalDemand}</Badge>
+                                                </TableCell>
+                                            </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                ) : (
+                                    <ul className="space-y-3">
+                                        {areaDemand.map((item, index) => (
+                                        <li key={`${item.city}-${item.area}-${index}-list`} className="flex justify-between items-center p-2 rounded-md bg-card border">
+                                            <div><p className="font-semibold text-sm">{item.area}</p><p className="text-xs text-muted-foreground">{item.city} - Clients: {item.clients.join(', ')}</p></div>
+                                            <Badge variant={getDemandTier(item.totalDemand).variant}>{item.totalDemand}</Badge>
+                                        </li>
+                                        ))}
+                                    </ul>
+                                )}
                             </ScrollArea>
                         </DialogContent>
                     </Dialog>
@@ -341,29 +373,60 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                         <CardDescription className="text-sm text-muted-foreground">Cities with demand from multiple clients (Top 5 from local data).</CardDescription>
                     </div>
                      {multiClientHotspots.length > 5 && (
-                        <Dialog>
+                        <Dialog onOpenChange={() => setShowHotspotTableView(false)}>
                             <DialogTrigger asChild>
                                 <Button variant="outline" size="sm" className="ml-auto gap-1.5 text-sm">
                                     <Eye className="h-4 w-4" /> View All
                                 </Button>
                             </DialogTrigger>
-                            <DialogContent className="sm:max-w-[625px]">
+                            <DialogContent className="sm:max-w-[725px]">
                                 <DialogHeader>
-                                    <DialogTitle>All Multi-Client Hotspot Cities</DialogTitle>
+                                    <div className="flex justify-between items-center">
+                                        <DialogTitle>All Multi-Client Hotspot Cities</DialogTitle>
+                                        <Button variant="outline" size="sm" onClick={() => setShowHotspotTableView(prev => !prev)}>
+                                            {showHotspotTableView ? <List className="mr-2 h-4 w-4" /> : <Columns className="mr-2 h-4 w-4" />}
+                                            {showHotspotTableView ? 'View as List' : 'View as Table'}
+                                        </Button>
+                                    </div>
                                     <DialogDescription>
                                         Full list of cities where multiple selected clients have demand.
                                     </DialogDescription>
                                 </DialogHeader>
                                 <ScrollArea className="h-[400px] w-full rounded-md border p-4">
-                                    <ul className="space-y-3">
-                                        {multiClientHotspots.map((hotspot) => (
-                                        <li key={`${hotspot.city}-all`} className="p-3 rounded-md bg-card border">
-                                            <div className="flex justify-between items-center"><p className="font-semibold text-base">{hotspot.city}</p><Badge variant="default">{hotspot.clientCount} Clients</Badge></div>
-                                            <p className="text-sm text-muted-foreground">Active: {hotspot.activeClients.join(', ')}</p>
-                                            <p className="text-xs text-muted-foreground">Total Demand Score: {hotspot.totalDemand}</p>
-                                        </li>
-                                        ))}
-                                    </ul>
+                                    {showHotspotTableView ? (
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead>City</TableHead>
+                                                    <TableHead>Active Clients</TableHead>
+                                                    <TableHead className="text-right">Client Count</TableHead>
+                                                    <TableHead className="text-right">Total Demand</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {multiClientHotspots.map((hotspot) => (
+                                                <TableRow key={`${hotspot.city}-all-table`}>
+                                                    <TableCell className="font-medium">{hotspot.city}</TableCell>
+                                                    <TableCell className="text-xs">{hotspot.activeClients.join(', ')}</TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Badge variant="default">{hotspot.clientCount} Clients</Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-right">{hotspot.totalDemand}</TableCell>
+                                                </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                    ) : (
+                                        <ul className="space-y-3">
+                                            {multiClientHotspots.map((hotspot) => (
+                                            <li key={`${hotspot.city}-all-list`} className="p-3 rounded-md bg-card border">
+                                                <div className="flex justify-between items-center"><p className="font-semibold text-base">{hotspot.city}</p><Badge variant="default">{hotspot.clientCount} Clients</Badge></div>
+                                                <p className="text-sm text-muted-foreground">Active: {hotspot.activeClients.join(', ')}</p>
+                                                <p className="text-xs text-muted-foreground">Total Demand Score: {hotspot.totalDemand}</p>
+                                            </li>
+                                            ))}
+                                        </ul>
+                                    )}
                                 </ScrollArea>
                             </DialogContent>
                         </Dialog>
