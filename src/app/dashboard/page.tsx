@@ -2,11 +2,23 @@
 import { DemandDashboardClient } from '@/components/features/demand-dashboard/demand-dashboard-client';
 import { Suspense } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { format } from 'date-fns'; // Added for consistency if needed, though not strictly for this fix
+import type { DemandData, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity } from '@/lib/types';
+import { 
+  getDemandDataAction, 
+} from '@/lib/actions';
+import { 
+  calculateCityDemandSummary,
+  calculateClientDemandSummary,
+  calculateAreaDemandSummary,
+  calculateMultiClientHotspots
+} from '@/lib/services/demand-data-service';
 
-// Removed server-side data fetching and summary calculations for initial load.
-// DemandDashboardClient will now handle its own data fetching (local-first).
 
 export default async function DashboardPage() {
+  // Create the date string on the server once
+  const todayISOString = new Date().toISOString();
+
   return (
     <div className="space-y-6">
       <header>
@@ -16,8 +28,8 @@ export default async function DashboardPage() {
         </p>
       </header>
       <Suspense fallback={<DashboardSkeleton />}>
-        {/* DemandDashboardClient no longer needs initial data props from server */}
-        <DemandDashboardClient />
+        {/* Pass the ISO string as initialSelectedDate */}
+        <DemandDashboardClient initialSelectedDate={todayISOString} />
       </Suspense>
     </div>
   );

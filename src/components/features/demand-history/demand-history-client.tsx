@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { DatePicker } from '@/components/ui/date-picker';
 import { getHistoricalDemandDataAction } from '@/lib/actions';
 import type { DemandData, ClientName } from '@/lib/types';
-import { format, subDays } from 'date-fns';
+import { format, subDays, isValid } from 'date-fns'; // Added isValid
 import { useToast } from '@/hooks/use-toast';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { Loader2, Search } from 'lucide-react';
@@ -28,8 +28,8 @@ interface DateRange {
 }
 
 interface DemandHistoryClientProps {
-  initialFromDate: Date;
-  initialToDate: Date;
+  initialFromDate: string; // Expect string
+  initialToDate: string;   // Expect string
 }
 
 export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHistoryClientProps) {
@@ -63,8 +63,8 @@ export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHi
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!dateRange.from || !dateRange.to) {
-      toast({ title: "Date Range Required", description: "Please select a start and end date.", variant: "destructive" });
+    if (!dateRange.from || !isValid(dateRange.from) || !dateRange.to || !isValid(dateRange.to)) {
+      toast({ title: "Date Range Required", description: "Please select a valid start and end date.", variant: "destructive" });
       return;
     }
     setIsLoading(true);
@@ -96,6 +96,9 @@ export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHi
     return Object.values(aggregated).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [historicalData]);
 
+  // Ensure dates for DatePicker are valid
+  const datePickerFromDate = useMemo(() => (dateRange.from && isValid(dateRange.from) ? dateRange.from : undefined), [dateRange.from]);
+  const datePickerToDate = useMemo(() => (dateRange.to && isValid(dateRange.to) ? dateRange.to : undefined), [dateRange.to]);
 
   return (
     <div className="space-y-6">
@@ -108,11 +111,11 @@ export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHi
           <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 items-end">
             <div>
               <Label htmlFor="date-from">From</Label>
-              <DatePicker id="date-from" date={dateRange.from} onDateChange={(date) => handleDateRangeChange('from', date)} />
+              <DatePicker id="date-from" date={datePickerFromDate} onDateChange={(date) => handleDateRangeChange('from', date)} />
             </div>
             <div>
               <Label htmlFor="date-to">To</Label>
-              <DatePicker id="date-to" date={dateRange.to} onDateChange={(date) => handleDateRangeChange('to', date)} />
+              <DatePicker id="date-to" date={datePickerToDate} onDateChange={(date) => handleDateRangeChange('to', date)} />
             </div>
             <div>
               <Label htmlFor="client-filter-hist">Client</Label>
@@ -227,4 +230,3 @@ export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHi
     </div>
   );
 }
-

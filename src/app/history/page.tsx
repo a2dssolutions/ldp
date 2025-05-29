@@ -4,8 +4,11 @@ import { subDays } from 'date-fns';
 
 export default function DemandHistoryPage() {
   const today = new Date();
-  const initialFromDate = subDays(today, 7);
-  const initialToDate = today;
+  const initialFrom = subDays(today, 7);
+
+  // Pass ISO strings to the client component
+  const initialFromDateISO = initialFrom.toISOString();
+  const initialToDateISO = today.toISOString();
 
   return (
     <div className="space-y-6">
@@ -16,8 +19,8 @@ export default function DemandHistoryPage() {
         </p>
       </header>
       <DemandHistoryClient 
-        initialFromDate={initialFromDate}
-        initialToDate={initialToDate}
+        initialFromDate={initialFromDateISO}
+        initialToDate={initialToDateISO}
       />
     </div>
   );
