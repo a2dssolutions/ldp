@@ -24,7 +24,7 @@ import type { DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, Mult
 import type { LocalDemandRecord } from '@/lib/dexie';
 import { format, parseISO, isToday, isValid, startOfDay } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
-import { Users, MapPin, TrendingUp, Zap, Info, Search, Eye, FileText, List, Columns } from 'lucide-react';
+import { Users, MapPin, TrendingUp, Zap, Info, Search, Eye, FileText, List, Columns, Download } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -47,6 +47,52 @@ const ALL_CLIENTS_SELECT_ITEM_VALUE = "_ALL_CLIENTS_DASHBOARD_";
 interface DemandDashboardClientProps {
   initialSelectedDate: string; 
 }
+
+// Helper function to export data to CSV
+function exportToCsv(filename: string, data: any[], headersConfig?: Record<string, string>) {
+  if (!data || data.length === 0) {
+    console.warn("No data to export for", filename);
+    return;
+  }
+
+  const dataKeys = headersConfig ? Object.keys(headersConfig) : Object.keys(data[0]);
+  const columnHeaders = headersConfig ? Object.values(headersConfig) : dataKeys;
+
+  const csvRows = [
+    columnHeaders.join(','), // header row
+    ...data.map(row =>
+      dataKeys
+        .map(key => {
+          let cellValue = row[key];
+          if (Array.isArray(cellValue)) { // Handle array values, e.g., 'clients'
+            cellValue = cellValue.join(';'); // Join array elements with a semicolon
+          }
+          let cell = cellValue === null || cellValue === undefined ? '' : String(cellValue);
+          // Basic CSV escaping
+          if (cell.search(/("|,|\n)/g) >= 0) {
+            cell = `"${cell.replace(/"/g, '""')}"`;
+          }
+          return cell;
+        })
+        .join(',')
+    ),
+  ];
+
+  const csvString = csvRows.join('\r\n');
+  const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  if (link.download !== undefined) {
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+}
+
 
 export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardClientProps) {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date(initialSelectedDate)); 
@@ -106,10 +152,11 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
       let message = "";
 
       if (isToday(selectedDate)) {
-        if (!dataPresentForSelectedDate) {
+         if (!dataPresentForSelectedDate) {
           showSyncMessage = true;
           message = `No local data for today (${selectedDateString}). Use Admin Panel to sync if needed.`;
         }
+        // No automatic sync if data for today IS present. User must use Admin Panel for forced refresh.
       } else { // For past dates
         if (!dataPresentForSelectedDate) {
           showSyncMessage = true;
@@ -258,7 +305,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                           fontSize: '10px',
                           fill: 'hsl(var(--foreground))',
                           position: 'inside',
-                          formatter: (value, entry) => { 
+                          formatter: (value: number, entry: any) => { 
                             if (entry.percent < 0.05 && clientDemandForChart.length > 3) return '';
                             return `${entry.name}: ${value} (${(entry.percent * 100).toFixed(0)}%)`;
                           }
@@ -290,7 +337,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                     <CardDescription className="text-sm text-muted-foreground">Highest demand areas (Top 5 from local data).</CardDescription>
                 </div>
                 {areaDemand.length > 5 && (
-                    <Dialog onOpenChange={() => setShowAreaTableView(false)}>
+                    <Dialog onOpenChange={() => setShowAreaTableView(false)}> {/* Reset view on close */}
                         <DialogTrigger asChild>
                             <Button variant="outline" size="sm" className="ml-auto gap-1.5 text-sm">
                                 <Eye className="h-4 w-4" /> View All
@@ -298,12 +345,23 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                         </DialogTrigger>
                         <DialogContent className="sm:max-w-[725px]">
                             <DialogHeader>
-                                <div className="flex justify-between items-center">
+                                <div className="flex justify-between items-center mb-2">
                                     <DialogTitle>All Top Performing Areas</DialogTitle>
-                                    <Button variant="outline" size="sm" onClick={() => setShowAreaTableView(prev => !prev)}>
-                                        {showAreaTableView ? <List className="mr-2 h-4 w-4" /> : <Columns className="mr-2 h-4 w-4" />}
-                                        {showAreaTableView ? 'View as List' : 'View as Table'}
-                                    </Button>
+                                    <div className="flex items-center gap-2">
+                                      <Button variant="outline" size="sm" onClick={() => setShowAreaTableView(prev => !prev)} className="gap-1.5 text-sm">
+                                          {showAreaTableView ? <List className="h-4 w-4" /> : <Columns className="h-4 w-4" />}
+                                          {showAreaTableView ? 'View as List' : 'View as Table'}
+                                      </Button>
+                                      <Button 
+                                        variant="outline" 
+                                        size="sm" 
+                                        onClick={() => exportToCsv(`top-performing-areas-${selectedDateString}.csv`, areaDemand, { area: 'Area', city: 'City', clients: 'Clients', totalDemand: 'Total Demand' })}
+                                        disabled={areaDemand.length === 0}
+                                        className="gap-1.5 text-sm"
+                                      >
+                                        <Download className="h-4 w-4" /> Export CSV
+                                      </Button>
+                                    </div>
                                 </div>
                                 <DialogDescription>
                                     Full list of areas sorted by total demand for the selected date and filters.
@@ -343,6 +401,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                                         ))}
                                     </ul>
                                 )}
+                                {areaDemand.length === 0 && <p className="text-center text-sm text-muted-foreground py-4">No area data available for current filters.</p>}
                             </ScrollArea>
                         </DialogContent>
                     </Dialog>
@@ -373,7 +432,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                         <CardDescription className="text-sm text-muted-foreground">Cities with demand from multiple clients (Top 5 from local data).</CardDescription>
                     </div>
                      {multiClientHotspots.length > 5 && (
-                        <Dialog onOpenChange={() => setShowHotspotTableView(false)}>
+                        <Dialog onOpenChange={() => setShowHotspotTableView(false)}> {/* Reset view on close */}
                             <DialogTrigger asChild>
                                 <Button variant="outline" size="sm" className="ml-auto gap-1.5 text-sm">
                                     <Eye className="h-4 w-4" /> View All
@@ -381,12 +440,23 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                             </DialogTrigger>
                             <DialogContent className="sm:max-w-[725px]">
                                 <DialogHeader>
-                                    <div className="flex justify-between items-center">
+                                    <div className="flex justify-between items-center mb-2">
                                         <DialogTitle>All Multi-Client Hotspot Cities</DialogTitle>
-                                        <Button variant="outline" size="sm" onClick={() => setShowHotspotTableView(prev => !prev)}>
-                                            {showHotspotTableView ? <List className="mr-2 h-4 w-4" /> : <Columns className="mr-2 h-4 w-4" />}
-                                            {showHotspotTableView ? 'View as List' : 'View as Table'}
-                                        </Button>
+                                        <div className="flex items-center gap-2">
+                                            <Button variant="outline" size="sm" onClick={() => setShowHotspotTableView(prev => !prev)} className="gap-1.5 text-sm">
+                                                {showHotspotTableView ? <List className="h-4 w-4" /> : <Columns className="h-4 w-4" />}
+                                                {showHotspotTableView ? 'View as List' : 'View as Table'}
+                                            </Button>
+                                            <Button 
+                                                variant="outline" 
+                                                size="sm" 
+                                                onClick={() => exportToCsv(`multi-client-hotspots-${selectedDateString}.csv`, multiClientHotspots, { city: 'City', activeClients: 'Active Clients', clientCount: 'Client Count', totalDemand: 'Total Demand' })}
+                                                disabled={multiClientHotspots.length === 0}
+                                                className="gap-1.5 text-sm"
+                                            >
+                                                <Download className="h-4 w-4" /> Export CSV
+                                            </Button>
+                                        </div>
                                     </div>
                                     <DialogDescription>
                                         Full list of cities where multiple selected clients have demand.
@@ -427,6 +497,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                                             ))}
                                         </ul>
                                     )}
+                                    {multiClientHotspots.length === 0 && <p className="text-center text-sm text-muted-foreground py-4">No multi-client hotspot data available.</p>}
                                 </ScrollArea>
                             </DialogContent>
                         </Dialog>
