@@ -8,15 +8,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { fetchAllSheetsDataAction, saveDemandDataAction } from '@/lib/actions';
-import type { MergedSheetData, ClientName, DemandData } from '@/lib/types'; // Added DemandData
-import type { ClientFetchResult } from '@/lib/services/google-sheet-service';
-import { saveBatchDataToLocalDB, updateSyncStatus } from '@/lib/services/demand-data-service'; // Import updateSyncStatus
+import type { MergedSheetData, ClientName, DemandData } from '@/lib/types';
+import { ALL_CLIENT_NAMES } from '@/lib/types';
+import { saveBatchDataToLocalDB, updateSyncStatus } from '@/lib/services/demand-data-service';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, UploadCloud, FileText, AlertTriangle, CheckCircle, XCircle, FileQuestion, Info } from 'lucide-react';
+import { Loader2, UploadCloud, FileText, AlertTriangle, CheckCircle, XCircle, FileQuestion, Info, Database } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { format, parseISO } from 'date-fns'; // For date transformation
-
-const ALL_CLIENT_NAMES: ClientName[] = ['Zepto', 'Blinkit', 'SwiggyFood', 'SwiggyIM'];
+import { format, parseISO } from 'date-fns';
 
 interface SourceStatus {
   client: ClientName;
@@ -32,26 +30,27 @@ interface DataFetchedThisSession {
 export function DataIngestionClient() {
   const [mergedDataPreview, setMergedDataPreview] = useState<MergedSheetData[]>([]);
   const [dataFetchedThisSession, setDataFetchedThisSession] = useState<DataFetchedThisSession>({});
-  
+
   const [sourceStatuses, setSourceStatuses] = useState<SourceStatus[]>(
     ALL_CLIENT_NAMES.map(client => ({ client, status: 'initial', rowCount: 0 }))
   );
-  
+
   const [selectedClientsToFetch, setSelectedClientsToFetch] = useState<ClientName[]>(ALL_CLIENT_NAMES);
   const [selectedClientsToUpload, setSelectedClientsToUpload] = useState<ClientName[]>([]);
 
   const [isFetching, setIsFetching] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
+  const [isUploadingToSystem, setIsUploadingToSystem] = useState(false);
+  const [isUploadingToLocal, setIsUploadingToLocal] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
     let newPreview: MergedSheetData[] = [];
     if (Object.keys(dataFetchedThisSession).length > 0) {
-        selectedClientsToUpload.forEach(clientName => {
-            if (dataFetchedThisSession[clientName]) {
-            newPreview = newPreview.concat(dataFetchedThisSession[clientName]);
-            }
-        });
+      selectedClientsToUpload.forEach(clientName => {
+        if (dataFetchedThisSession[clientName]) {
+          newPreview = newPreview.concat(dataFetchedThisSession[clientName]);
+        }
+      });
     }
     setMergedDataPreview(newPreview);
   }, [dataFetchedThisSession, selectedClientsToUpload]);
@@ -87,14 +86,14 @@ export function DataIngestionClient() {
         message: selectedClientsToFetch.includes(clientName) ? 'Fetching...' : 'Not included in this fetch.',
       }))
     );
-    
+
     try {
       const result = await fetchAllSheetsDataAction(selectedClientsToFetch);
-      
+
       const newFetchedData: DataFetchedThisSession = {};
       result.clientResults.forEach(cr => {
         if (cr.status === 'success' && result.allMergedData) {
-            newFetchedData[cr.client] = result.allMergedData.filter(d => d.client === cr.client);
+          newFetchedData[cr.client] = result.allMergedData.filter(d => d.client === cr.client);
         }
       });
       setDataFetchedThisSession(newFetchedData);
@@ -116,7 +115,6 @@ export function DataIngestionClient() {
         if (!selectedClientsToFetch.includes(clientName)) {
           return { client: clientName, status: 'not-fetched', message: 'Not included in this fetch.', rowCount: 0 } as SourceStatus;
         }
-        // Fallback for clients that might not have been in result.clientResults but were selected (should ideally not happen)
         return { client: clientName, status: 'initial', message: 'Status unknown.', rowCount: 0 } as SourceStatus;
       });
       setSourceStatuses(updatedStatuses);
@@ -130,7 +128,7 @@ export function DataIngestionClient() {
         toast({
           title: 'Data Fetched with Some Errors',
           description: `${successCount} sources succeeded, ${emptyCount} empty/no data, ${errorCount} failed. ${totalFetchedRecords} total records fetched. Check details below.`,
-          variant: 'default', 
+          variant: 'default',
         });
       } else if (totalFetchedRecords === 0 && (successCount === 0 || emptyCount > 0)) {
         toast({
@@ -162,30 +160,29 @@ export function DataIngestionClient() {
     }
   };
 
-  const handleUploadData = async () => {
-    if (selectedClientsToUpload.length === 0) {
-        toast({ title: 'No Clients Selected for Upload', description: 'Please select at least one client whose data you want to upload.', variant: 'destructive' });
-        return;
-    }
-
+  const getSelectedDataToUpload = (): MergedSheetData[] => {
     let dataToUpload: MergedSheetData[] = [];
     selectedClientsToUpload.forEach(clientName => {
-        if (dataFetchedThisSession[clientName]) {
-            dataToUpload = dataToUpload.concat(dataFetchedThisSession[clientName]);
-        }
+      if (dataFetchedThisSession[clientName]) {
+        dataToUpload = dataToUpload.concat(dataFetchedThisSession[clientName]);
+      }
     });
-    
+    return dataToUpload;
+  }
+
+  const handleUploadToSystem = async () => {
+    const dataToUpload = getSelectedDataToUpload();
     if (dataToUpload.length === 0) {
       toast({
         title: 'No Data to Upload',
-        description: 'The selected clients have no data from the recent fetch. Fetch data first or ensure selected sources fetched data successfully.',
+        description: 'Select clients with fetched data to upload.',
         variant: 'destructive',
       });
       return;
     }
-    setIsUploading(true);
+
+    setIsUploadingToSystem(true);
     try {
-      // Step 1: Save to Firestore
       const firestoreResult = await saveDemandDataAction(dataToUpload);
       if (firestoreResult.success) {
         toast({
@@ -193,20 +190,15 @@ export function DataIngestionClient() {
           description: firestoreResult.message,
         });
 
-        // Step 2: Save to local Dexie DB
+        // Now save to local DB as well
         try {
           const demandDataToSaveLocally: DemandData[] = dataToUpload.map(item => ({
             ...item,
-            date: format(parseISO(item.timestamp), 'yyyy-MM-dd') 
+            date: format(parseISO(item.timestamp), 'yyyy-MM-dd')
           }));
           await saveBatchDataToLocalDB(demandDataToSaveLocally);
-          toast({ title: 'Local Cache Updated', description: 'Fetched data also saved to local cache.' });
-          
-          // Step 3: Update local sync timestamp
-          await updateSyncStatus(new Date());
-          console.log("Data Ingestion: Local sync status updated after successful local save.");
-
-
+          await updateSyncStatus(new Date()); // Update local sync timestamp
+          toast({ title: 'Local Cache Updated', description: 'Fetched data also saved to local cache and sync status updated.' });
         } catch (localSaveError) {
           console.error('Failed to save data to local Dexie DB or update sync status:', localSaveError);
           toast({
@@ -230,10 +222,42 @@ export function DataIngestionClient() {
         variant: 'destructive',
       });
     } finally {
-      setIsUploading(false);
+      setIsUploadingToSystem(false);
     }
   };
-  
+
+  const handleUploadToLocalOnly = async () => {
+    const dataToUpload = getSelectedDataToUpload();
+    if (dataToUpload.length === 0) {
+      toast({
+        title: 'No Data to Upload',
+        description: 'Select clients with fetched data to upload locally.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsUploadingToLocal(true);
+    try {
+      const demandDataToSaveLocally: DemandData[] = dataToUpload.map(item => ({
+        ...item,
+        date: format(parseISO(item.timestamp), 'yyyy-MM-dd')
+      }));
+      await saveBatchDataToLocalDB(demandDataToSaveLocally);
+      await updateSyncStatus(new Date()); // Update local sync timestamp
+      toast({ title: 'Local Cache Updated', description: 'Fetched data saved to local cache and sync status updated.' });
+    } catch (localSaveError) {
+      console.error('Failed to save data to local Dexie DB or update sync status:', localSaveError);
+      toast({
+        title: 'Local Cache Save Failed',
+        description: `Failed to save data to local cache: ${localSaveError instanceof Error ? localSaveError.message : String(localSaveError)}`,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsUploadingToLocal(false);
+    }
+  }
+
   const getStatusIcon = (status: SourceStatus['status']) => {
     switch (status) {
       case 'initial': return <Info className="h-4 w-4 text-muted-foreground" />;
@@ -241,20 +265,21 @@ export function DataIngestionClient() {
       case 'success': return <CheckCircle className="h-4 w-4 text-green-500" />;
       case 'error': return <XCircle className="h-4 w-4 text-red-500" />;
       case 'empty': return <FileQuestion className="h-4 w-4 text-yellow-500" />;
-      case 'not-fetched': return <Info className="h-4 w-4 text-gray-400" />; // Or a specific "skipped" icon
+      case 'not-fetched': return <Info className="h-4 w-4 text-gray-400" />;
       default: return <Info className="h-4 w-4 text-muted-foreground" />;
     }
   };
 
   const isAnyClientSelectedForFetch = selectedClientsToFetch.length > 0;
-  const isAnyClientSelectedForUpload = selectedClientsToUpload.length > 0 && Object.keys(dataFetchedThisSession).some(client => selectedClientsToUpload.includes(client as ClientName) && dataFetchedThisSession[client].length > 0) ;
+  const isAnyClientSelectedForUpload = selectedClientsToUpload.length > 0 && Object.keys(dataFetchedThisSession).some(client => selectedClientsToUpload.includes(client as ClientName) && dataFetchedThisSession[client].length > 0);
+  const isAnyOperationInProgress = isFetching || isUploadingToSystem || isUploadingToLocal;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Ingest Demand Data</CardTitle>
         <CardDescription>
-          Select clients, then "Fetch Selected Clients" to retrieve data. Preview the data below, then select clients and "Upload Selected to System" to save it to cloud and local cache.
+          Select clients to fetch data from. Preview the data, then choose to upload it to the cloud system (Firestore & Local Cache) or to local cache only.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -268,7 +293,7 @@ export function DataIngestionClient() {
                     id={`fetch-${client}`}
                     checked={selectedClientsToFetch.includes(client)}
                     onCheckedChange={(checked) => handleClientSelectionForFetch(client, !!checked)}
-                    disabled={isFetching}
+                    disabled={isAnyOperationInProgress}
                   />
                   <Label htmlFor={`fetch-${client}`} className="text-sm font-normal">
                     {client}
@@ -276,7 +301,7 @@ export function DataIngestionClient() {
                 </div>
               ))}
             </div>
-            <Button onClick={handleFetchData} disabled={isFetching || isUploading || !isAnyClientSelectedForFetch} className="w-full">
+            <Button onClick={handleFetchData} disabled={isAnyOperationInProgress || !isAnyClientSelectedForFetch} className="w-full">
               {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
               Fetch Selected Clients
             </Button>
@@ -310,28 +335,34 @@ export function DataIngestionClient() {
         {Object.keys(dataFetchedThisSession).length > 0 && (
           <div className="space-y-3 pt-4 border-t">
             <h3 className="text-base font-semibold text-foreground">3. Select Fetched Clients to Upload:</h3>
-             <div className="space-y-2 p-3 border rounded-md bg-background/50 max-h-60 overflow-y-auto">
+            <div className="space-y-2 p-3 border rounded-md bg-background/50 max-h-60 overflow-y-auto">
               {ALL_CLIENT_NAMES.filter(client => dataFetchedThisSession[client] && dataFetchedThisSession[client].length > 0).map(client => (
                 <div key={`upload-${client}`} className="flex items-center space-x-2">
                   <Checkbox
                     id={`upload-${client}`}
                     checked={selectedClientsToUpload.includes(client)}
                     onCheckedChange={(checked) => handleClientSelectionForUpload(client, !!checked)}
-                    disabled={isUploading || isFetching}
+                    disabled={isAnyOperationInProgress}
                   />
                   <Label htmlFor={`upload-${client}`} className="text-sm font-normal">
                     {client} ({dataFetchedThisSession[client]?.length || 0} records)
                   </Label>
                 </div>
               ))}
-               {ALL_CLIENT_NAMES.filter(client => dataFetchedThisSession[client] && dataFetchedThisSession[client].length > 0).length === 0 && (
-                 <p className="text-sm text-muted-foreground">No data successfully fetched in this session to upload.</p>
-               )}
+              {ALL_CLIENT_NAMES.filter(client => dataFetchedThisSession[client] && dataFetchedThisSession[client].length > 0).length === 0 && (
+                <p className="text-sm text-muted-foreground">No data successfully fetched in this session to upload.</p>
+              )}
             </div>
-            <Button onClick={handleUploadData} disabled={isUploading || !isAnyClientSelectedForUpload || isFetching} className="w-full md:w-auto">
-              {isUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
-              Upload Selected to System
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-2">
+                <Button onClick={handleUploadToSystem} disabled={isAnyOperationInProgress || !isAnyClientSelectedForUpload} className="w-full sm:w-auto">
+                {isUploadingToSystem ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
+                Upload to System (Cloud & Local)
+                </Button>
+                <Button onClick={handleUploadToLocalOnly} variant="outline" disabled={isAnyOperationInProgress || !isAnyClientSelectedForUpload} className="w-full sm:w-auto">
+                {isUploadingToLocal ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Database className="mr-2 h-4 w-4" />}
+                Upload to Local Only
+                </Button>
+            </div>
           </div>
         )}
 
@@ -344,40 +375,40 @@ export function DataIngestionClient() {
 
         {mergedDataPreview.length > 0 && !isFetching && (
           <div className="space-y-3 pt-4 border-t">
-             <h3 className="text-base font-semibold text-foreground">Preview of Data Selected for Upload:</h3>
+            <h3 className="text-base font-semibold text-foreground">Preview of Data Selected for Upload:</h3>
             <ScrollArea className="max-h-[500px] overflow-auto rounded-md border">
-                <Table>
+              <Table>
                 <TableHeader className="sticky top-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                    <TableRow>
+                  <TableRow>
                     <TableHead>Client</TableHead>
                     <TableHead>City</TableHead>
                     <TableHead>Area</TableHead>
                     <TableHead>Demand Score</TableHead>
                     <TableHead>Timestamp</TableHead>
-                    </TableRow>
+                  </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {mergedDataPreview.map((item) => (
+                  {mergedDataPreview.map((item) => (
                     <TableRow key={item.id}>
-                        <TableCell className="text-xs sm:text-sm">{item.client}</TableCell>
-                        <TableCell className="text-xs sm:text-sm">{item.city}</TableCell>
-                        <TableCell className="text-xs sm:text-sm">{item.area}</TableCell>
-                        <TableCell className="text-xs sm:text-sm">{item.demandScore}</TableCell>
-                        <TableCell className="text-xs sm:text-sm">{new Date(item.timestamp).toLocaleString()}</TableCell>
+                      <TableCell className="text-xs sm:text-sm">{item.client}</TableCell>
+                      <TableCell className="text-xs sm:text-sm">{item.city}</TableCell>
+                      <TableCell className="text-xs sm:text-sm">{item.area}</TableCell>
+                      <TableCell className="text-xs sm:text-sm">{item.demandScore}</TableCell>
+                      <TableCell className="text-xs sm:text-sm">{new Date(item.timestamp).toLocaleString()}</TableCell>
                     </TableRow>
-                    ))}
+                  ))}
                 </TableBody>
-                </Table>
+              </Table>
             </ScrollArea>
           </div>
         )}
-        
+
         {mergedDataPreview.length === 0 && !isFetching && Object.keys(dataFetchedThisSession).length > 0 && (
-             <div className="text-center py-10 pt-4 border-t">
-                <p className="text-sm text-muted-foreground">
-                    No clients selected for upload, or selected clients have no data from the recent fetch.
-                </p>
-            </div>
+          <div className="text-center py-10 pt-4 border-t">
+            <p className="text-sm text-muted-foreground">
+              No clients selected for upload, or selected clients have no data from the recent fetch.
+            </p>
+          </div>
         )}
 
         {mergedDataPreview.length === 0 && !isFetching && Object.keys(dataFetchedThisSession).length === 0 && sourceStatuses.every(s => s.status === 'initial' || s.status === 'not-fetched') && (
@@ -388,11 +419,11 @@ export function DataIngestionClient() {
       </CardContent>
       <CardFooter>
         <p className="text-xs text-muted-foreground">
-          {mergedDataPreview.length > 0 ? `${mergedDataPreview.length} records in current upload selection.` : 
-           !isFetching && (sourceStatuses.every(s => s.status === 'initial' || s.status === 'not-fetched') || selectedClientsToFetch.length === 0) ? "Ready to fetch data." :
-           !isFetching && Object.keys(dataFetchedThisSession).length > 0 ? "Select clients from fetched data to upload or preview." :
-           !isFetching ? "Data preview will appear here after fetching and selection." : 
-           "Fetching data..."}
+          {mergedDataPreview.length > 0 ? `${mergedDataPreview.length} records in current upload selection.` :
+            !isFetching && (sourceStatuses.every(s => s.status === 'initial' || s.status === 'not-fetched') || selectedClientsToFetch.length === 0) ? "Ready to fetch data." :
+              !isFetching && Object.keys(dataFetchedThisSession).length > 0 ? "Select clients from fetched data to upload or preview." :
+                !isFetching ? "Data preview will appear here after fetching and selection." :
+                  "Fetching data..."}
         </p>
       </CardFooter>
     </Card>

@@ -5,12 +5,13 @@ import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { triggerManualSyncAction, clearAllLocalDemandDataAction, syncLocalDemandDataForDateAction } from '@/lib/actions';
-import { 
+import { triggerManualSyncAction, syncLocalDemandDataForDateAction } from '@/lib/actions';
+import {
   getSyncStatus,
-  performLocalSyncOperations, // Changed from individual operations
-  clearAllLocalDemandData
-} from '@/lib/services/demand-data-service'; 
+  performLocalSyncOperations,
+  clearAllLocalDemandData,
+  getTotalLocalRecordsCount // Import new service function
+} from '@/lib/services/demand-data-service';
 import type { LocalSyncMeta } from '@/lib/types';
 import { Loader2, RefreshCw, Database, FileText, CheckCircle, XCircle, Info, Trash2, DownloadCloud } from 'lucide-react';
 import { format, isValid } from 'date-fns';
@@ -33,10 +34,15 @@ export function AdminPanelClient() {
   const localSyncMeta = useLiveQuery(
     () => getSyncStatus(),
     [],
-    // Provide a default value that matches LocalSyncMeta structure
-    { id: 'lastSyncStatus', timestamp: null } as LocalSyncMeta 
+    { id: 'lastSyncStatus', timestamp: null } as LocalSyncMeta
   );
-  
+
+  const totalLocalRecords = useLiveQuery(
+    () => getTotalLocalRecordsCount(),
+    [],
+    0 // Default value
+  );
+
   const lastLocalSyncDate = useMemo(() => {
     return localSyncMeta?.timestamp ? new Date(localSyncMeta.timestamp) : null;
   }, [localSyncMeta]);
@@ -53,9 +59,9 @@ export function AdminPanelClient() {
 
   const handleManualFirestoreSync = async () => {
     setIsSyncingFirestore(true);
-    setLastFirestoreSyncInfo(null); 
+    setLastFirestoreSyncInfo(null);
     try {
-      const result = await triggerManualSyncAction(); 
+      const result = await triggerManualSyncAction();
       const currentSyncInfo = {
         timestamp: new Date(),
         message: result.message,
@@ -86,9 +92,9 @@ export function AdminPanelClient() {
 
   const handleClearLocalData = async () => {
     setIsClearingLocal(true);
-    toast({title: "Clearing Local Data...", description: "Attempting to remove all cached demand data."});
+    toast({ title: "Clearing Local Data...", description: "Attempting to remove all cached demand data." });
     try {
-      const result = await clearAllLocalDemandData(); 
+      const result = await clearAllLocalDemandData();
       if (result.success) {
         toast({ title: "Local Data Cleared", description: result.message });
       } else {
@@ -97,7 +103,7 @@ export function AdminPanelClient() {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error("Error clearing local data:", error);
-      toast({ title: "Error", description: `Could not clear local data: ${errorMessage}`, variant: "destructive"});
+      toast({ title: "Error", description: `Could not clear local data: ${errorMessage}`, variant: "destructive" });
     } finally {
       setIsClearingLocal(false);
     }
@@ -108,9 +114,11 @@ export function AdminPanelClient() {
     const todayDateString = format(new Date(), 'yyyy-MM-dd');
     toast({ title: "Syncing Today's Data to Local Cache...", description: `Fetching latest data for ${todayDateString} from cloud.` });
     try {
-      const result = await syncLocalDemandDataForDateAction(todayDateString); 
+      // Fetch all data for today from Firestore, bypassing normal dashboard limits
+      const result = await syncLocalDemandDataForDateAction(todayDateString);
       if (result.success) {
-        await performLocalSyncOperations(todayDateString, result.data); // Use new transactional function
+        // This function now handles the transaction of clearing old, saving new, and updating meta
+        await performLocalSyncOperations(todayDateString, result.data);
         toast({ title: "Local Sync Successful", description: `${result.data.length} records for ${todayDateString} saved to local cache.` });
       } else {
         toast({ title: "Local Sync Failed", description: result.message || "Could not sync today's data from cloud.", variant: "destructive" });
@@ -118,7 +126,7 @@ export function AdminPanelClient() {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
       console.error("Failed to sync today's data to local DB:", error);
-      toast({ title: "Local Sync Error", description: `An unexpected error occurred during local sync: ${errorMessage}`, variant: "destructive"});
+      toast({ title: "Local Sync Error", description: `An unexpected error occurred during local sync: ${errorMessage}`, variant: "destructive" });
     } finally {
       setIsSyncingTodayToLocal(false);
     }
@@ -152,7 +160,7 @@ export function AdminPanelClient() {
             </div>
           )}
         </CardContent>
-         <CardFooter><p className="text-xs text-muted-foreground">This operation re-imports from sheets to the main cloud database.</p></CardFooter>
+        <CardFooter><p className="text-xs text-muted-foreground">This operation re-imports from sheets to the main cloud database.</p></CardFooter>
       </Card>
 
       <Card>
@@ -161,12 +169,15 @@ export function AdminPanelClient() {
           <CardDescription>Manage the locally cached (IndexedDB) demand data on this browser.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-           <div className="p-3 border rounded-md bg-muted/50 space-y-1">
-             <p className="text-sm font-medium">Local Sync Status</p>
-             <p className="text-xs text-muted-foreground">
-                Last Synced to Local: {lastLocalSyncDate && isValid(lastLocalSyncDate) ? format(lastLocalSyncDate, "PPP p") : 'Never'}
-             </p>
-           </div>
+          <div className="p-3 border rounded-md bg-muted/50 space-y-1">
+            <p className="text-sm font-medium">Local Sync Status</p>
+            <p className="text-xs text-muted-foreground">
+              Last Synced to Local: {lastLocalSyncDate && isValid(lastLocalSyncDate) ? format(lastLocalSyncDate, "PPP p") : 'Never'}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Total Records in Local Cache: {totalLocalRecords ?? 'Loading...'}
+            </p>
+          </div>
           <Button onClick={handleSyncTodayToLocalDB} variant="outline" disabled={isSyncingTodayToLocal || isSyncingFirestore} className="w-full">
             {isSyncingTodayToLocal ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DownloadCloud className="mr-2 h-4 w-4" />}
             Sync Today from Cloud to Local
@@ -185,7 +196,7 @@ export function AdminPanelClient() {
           <CardDescription>Access system logs for debugging. (Placeholder)</CardDescription>
         </CardHeader>
         <CardContent><p className="text-sm text-muted-foreground">Log Level: INFO. Recent Errors: 0.</p><Button variant="outline" className="mt-2 w-full" disabled>Access Logs</Button></CardContent>
-         <CardFooter><p className="text-xs text-muted-foreground">View system and error logs (feature placeholder).</p></CardFooter>
+        <CardFooter><p className="text-xs text-muted-foreground">View system and error logs (feature placeholder).</p></CardFooter>
       </Card>
     </div>
   );
