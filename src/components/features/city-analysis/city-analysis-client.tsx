@@ -85,11 +85,11 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
     }
 
     const citiesData: Record<string, {
-      activeClients: Set<ClientName>; // Tracks which of the primarySelectedClients are active
-      areas: Record<string, number>; // areaName: totalDemand from primarySelectedClients
+      activeClients: Set<ClientName>; 
+      areas: Record<string, number>; 
     }> = {};
 
-    for (const record of filteredDataBySelectedClients) { // Iterate over data already filtered by primarySelectedClients
+    for (const record of filteredDataBySelectedClients) { 
       if (!record || typeof record.city !== 'string' || record.city.trim() === '') {
         continue;
       }
@@ -102,7 +102,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
         };
       }
       const cityEntry = citiesData[cityKey];
-      cityEntry.activeClients.add(record.client); // record.client is guaranteed to be in primarySelectedClients
+      cityEntry.activeClients.add(record.client); 
 
       if (record.area && typeof record.area === 'string' && record.area.trim() !== '' && typeof record.demandScore === 'number') {
         cityEntry.areas[record.area] = (cityEntry.areas[record.area] || 0) + record.demandScore;
@@ -121,8 +121,8 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
         .join(', ') || 'N/A';
 
       const clientPresence: Partial<Record<ClientName, boolean>> = {};
-      ALL_CLIENT_NAMES.forEach(client => { // Check against ALL_CLIENT_NAMES for full matrix
-        clientPresence[client] = cityInfo.activeClients.has(client); // but only selected primary clients contribute to cityInfo.activeClients
+      ALL_CLIENT_NAMES.forEach(client => { 
+        clientPresence[client] = cityInfo.activeClients.has(client); 
       });
 
       resultMatrix.push({
@@ -132,7 +132,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
         swiggyFood: clientPresence['SwiggyFood'] || false,
         swiggyIM: clientPresence['SwiggyIM'] || false,
         highDemandAreas: top3AreasString,
-        activeSelectedClientCount: cityInfo.activeClients.size, // Count of primary selected clients active in this city
+        activeSelectedClientCount: cityInfo.activeClients.size, 
       });
     }
     return resultMatrix;
@@ -152,7 +152,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
 
     setIsLoading(true);
     setReportData([]);
-    setSelectedActiveClientCounts([]); // Reset secondary filter
+    setSelectedActiveClientCounts([]); 
     try {
       const dateString = format(selectedDate, 'yyyy-MM-dd');
       const localData = await getLocalDemandDataForDate(dateString);
@@ -353,7 +353,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
                                 checked={selectedActiveClientCounts.includes(count)}
                                 onCheckedChange={() => handleActiveClientCountFilterChange(count)}
                               >
-                                {count} client(s)
+                                {count}
                               </DropdownMenuCheckboxItem>
                             ))}
                              {selectedActiveClientCounts.length > 0 && (
