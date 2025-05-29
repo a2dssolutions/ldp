@@ -10,12 +10,13 @@ import {
   clearAllDemandDataFromStore,
   getDemandDataFromFirestore,
   getHistoricalDemandDataFromFirestore,
-  calculateCityDemandSummary as serviceGetCityDemandSummary, // Corrected if this was also an issue, but error was for AreaDemand
-  calculateClientDemandSummary as serviceGetClientDemandSummary, // Corrected if this was also an issue
-  calculateAreaDemandSummary as serviceGetAreaDemandSummary, // Corrected import
-  calculateMultiClientHotspots as serviceGetMultiClientHotspots, // Corrected if this was also an issue
-  performLocalSyncOperations, // Ensure this is exported if used by client actions
-  saveBatchDataToLocalDB, // Ensure this is exported if used by client actions
+  calculateCityDemandSummary as serviceGetCityDemandSummary,
+  calculateClientDemandSummary as serviceGetClientDemandSummary,
+  calculateAreaDemandSummary as serviceGetAreaDemandSummary,
+  calculateMultiClientHotspots as serviceGetMultiClientHotspots,
+  performLocalSyncOperations as servicePerformLocalSyncOperations,
+  saveBatchDataToLocalDB as serviceSaveBatchDataToLocalDB,
+  clearDemandDataForDateFromLocalDB as serviceClearDemandDataForDateFromLocalDB,
 } from '@/lib/services/demand-data-service';
 import { getAppSettings as serviceGetAppSettings, saveAppSettings as serviceSaveAppSettings, type AppSettings } from '@/lib/services/config-service';
 import type { MergedSheetData, DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity, CityClientMatrixRow } from '@/lib/types';
@@ -64,7 +65,7 @@ export async function triggerManualSyncAction(): Promise<{ success: boolean; mes
       console.warn("Failed to clear existing data from Firestore during manual sync:", clearResult.message);
     }
 
-    const { allMergedData: liveData, clientResults } = await fetchAllSheetsDataAction();
+    const { allMergedData: liveData, clientResults } = await fetchAllSheetsDataAction(); // Uses configured sheet URLs
 
     const successfulFetches = clientResults.filter(r => r.status === 'success' || r.status === 'empty').length;
     const errorFetches = clientResults.filter(r => r.status === 'error').length;
@@ -117,33 +118,30 @@ export async function clearAllLocalDemandDataAction(): Promise<{success: boolean
     return { success: true, message: "Local data clear request acknowledged. Client will perform the operation." };
 }
 
-// Summary actions for server-side dashboard data fetching (if needed, mostly client-side now)
-export async function getCityDemandSummaryAction(date: string, client?: ClientName): Promise<CityDemand[]> {
-  const demandData = await getDemandDataFromFirestore({ date, client }, { bypassLimits: true });
-  return serviceGetCityDemandSummary(demandData);
+// Summary actions for server-side dashboard data fetching
+export async function getCityDemandSummaryAction(data: DemandData[]): Promise<CityDemand[]> {
+  return serviceGetCityDemandSummary(data);
 }
 
-export async function getClientDemandSummaryAction(date: string): Promise<ClientDemand[]> {
-  const demandData = await getDemandDataFromFirestore({ date }, { bypassLimits: true });
-  return serviceGetClientDemandSummary(demandData);
+export async function getClientDemandSummaryAction(data: DemandData[]): Promise<ClientDemand[]> {
+  return serviceGetClientDemandSummary(data);
 }
 
-export async function getAreaDemandSummaryAction(date: string, client?: ClientName, city?: string): Promise<AreaDemand[]> {
-  const demandData = await getDemandDataFromFirestore({ date, client, city }, { bypassLimits: true });
-  return serviceGetAreaDemandSummary(demandData);
+export async function getAreaDemandSummaryAction(data: DemandData[]): Promise<AreaDemand[]> {
+  return serviceGetAreaDemandSummary(data);
 }
 
-export async function getMultiClientHotspotsAction(date: string, minClients?: number, minDemandPerClient?: number): Promise<MultiClientHotspotCity[]> {
-  const demandData = await getDemandDataFromFirestore({ date }, { bypassLimits: true });
-  return serviceGetMultiClientHotspots(demandData, minClients, minDemandPerClient);
+export async function getMultiClientHotspotsAction(data: DemandData[], minClients?: number, minDemandPerClient?: number): Promise<MultiClientHotspotCity[]> {
+  return serviceGetMultiClientHotspots(data, minClients, minDemandPerClient);
 }
 
 export async function getCityClientMatrixAction(date: string): Promise<CityClientMatrixRow[]> {
   try {
     const allDemandDataForDate = await getDemandDataAction({ date }, { bypassLimits: true });
 
-    if (!allDemandDataForDate || allDemandDataForDate.length === 0) {
-      return [];
+    if (!Array.isArray(allDemandDataForDate)) {
+      console.error("getCityClientMatrixAction: Fetched data (allDemandDataForDate) is not an array.");
+      return []; // Return empty array if data is malformed
     }
 
     const citiesData: Record<string, {
@@ -155,8 +153,23 @@ export async function getCityClientMatrixAction(date: string): Promise<CityClien
     }> = {};
 
     for (const record of allDemandDataForDate) {
-      if (!citiesData[record.city]) {
-        citiesData[record.city] = {
+      // Defensive checks for each record
+      if (
+        !record ||
+        typeof record.city !== 'string' || record.city.trim() === '' ||
+        typeof record.area !== 'string' || record.area.trim() === '' ||
+        typeof record.client !== 'string' ||
+        typeof record.demandScore !== 'number' || isNaN(record.demandScore)
+      ) {
+        console.warn('getCityClientMatrixAction: Skipping malformed or incomplete record:', JSON.stringify(record).substring(0, 200));
+        continue;
+      }
+
+      const cityKey = record.city;
+      const areaKey = record.area;
+
+      if (!citiesData[cityKey]) {
+        citiesData[cityKey] = {
           blinkit: false,
           zepto: false,
           swiggyFood: false,
@@ -165,40 +178,54 @@ export async function getCityClientMatrixAction(date: string): Promise<CityClien
         };
       }
 
-      const cityEntry = citiesData[record.city];
+      const cityEntry = citiesData[cityKey];
 
       if (record.client === 'Blinkit') cityEntry.blinkit = true;
-      if (record.client === 'Zepto') cityEntry.zepto = true;
-      if (record.client === 'SwiggyFood') cityEntry.swiggyFood = true;
-      if (record.client === 'SwiggyIM') cityEntry.swiggyIM = true;
+      else if (record.client === 'Zepto') cityEntry.zepto = true;
+      else if (record.client === 'SwiggyFood') cityEntry.swiggyFood = true;
+      else if (record.client === 'SwiggyIM') cityEntry.swiggyIM = true;
+      // else, client is not one of the tracked ones for this matrix, but area demand still counts
 
-      cityEntry.areas[record.area] = (cityEntry.areas[record.area] || 0) + record.demandScore;
+      cityEntry.areas[areaKey] = (cityEntry.areas[areaKey] || 0) + record.demandScore;
     }
 
-    const result: CityClientMatrixRow[] = [];
+    const resultMatrix: CityClientMatrixRow[] = [];
     for (const cityName in citiesData) {
-      const data = citiesData[cityName];
-      const sortedAreas = Object.entries(data.areas)
-        .map(([areaName, totalDemand]) => ({ areaName, totalDemand }))
-        .sort((a, b) => b.totalDemand - a.totalDemand);
+      const cityInfo = citiesData[cityName]; // cityInfo is an object by design here
 
-      const top3Areas = sortedAreas.slice(0, 3)
+      // cityInfo.areas is also guaranteed to be an object (Record<string, number>)
+      const sortedAreas = Object.entries(cityInfo.areas)
+        .map(([areaName, totalDemand]) => {
+            // Ensure areaName is a string and totalDemand is a number before creating the object
+            if (typeof areaName === 'string' && typeof totalDemand === 'number' && !isNaN(totalDemand)) {
+                return { areaName, totalDemand };
+            }
+            console.warn(`getCityClientMatrixAction: Malformed area entry for city ${cityName}: [${areaName}, ${totalDemand}]`);
+            return null; 
+        })
+        .filter(item => item !== null) as { areaName: string; totalDemand: number }[]; // Filter out nulls and assert type
+      
+      sortedAreas.sort((a, b) => b.totalDemand - a.totalDemand);
+
+      const top3AreasString = sortedAreas.slice(0, 3)
         .map(a => `${a.areaName} (${a.totalDemand})`)
-        .join(', ');
+        .join(', ') || 'N/A';
 
-      result.push({
+      resultMatrix.push({
         city: cityName,
-        blinkit: data.blinkit,
-        zepto: data.zepto,
-        swiggyFood: data.swiggyFood,
-        swiggyIM: data.swiggyIM,
-        highDemandAreas: top3Areas || 'N/A',
+        blinkit: cityInfo.blinkit,
+        zepto: cityInfo.zepto,
+        swiggyFood: cityInfo.swiggyFood,
+        swiggyIM: cityInfo.swiggyIM,
+        highDemandAreas: top3AreasString,
       });
     }
-
-    return result.sort((a,b) => a.city.localeCompare(b.city)); // Sort by city name
+    
+    return resultMatrix.sort((a,b) => a.city.localeCompare(b.city));
   } catch (error) {
     console.error("Error in getCityClientMatrixAction:", error);
-    throw new Error(`Failed to generate city client matrix: ${error instanceof Error ? error.message : String(error)}`);
+    // Instead of re-throwing, return empty array to prevent client error if action fails catastrophically
+    // Client-side should handle empty array gracefully (e.g. "no data" message)
+    return []; 
   }
 }
