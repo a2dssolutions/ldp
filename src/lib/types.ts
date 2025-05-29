@@ -2,7 +2,6 @@
 export type ClientName = 'Zepto' | 'Blinkit' | 'SwiggyFood' | 'SwiggyIM';
 export const ALL_CLIENT_NAMES: ClientName[] = ['Zepto', 'Blinkit', 'SwiggyFood', 'SwiggyIM'];
 
-
 export interface RawSheetData {
   id: string;
   demandScore: number;
@@ -16,7 +15,6 @@ export interface MergedSheetData extends RawSheetData {
 }
 
 export interface DemandData extends MergedSheetData {
-  // any additional processed fields can be added here
   date: string; // YYYY-MM-DD format for easier filtering
 }
 
@@ -32,9 +30,9 @@ export interface ClientDemand {
 
 export interface AreaDemand {
   area: string;
-  city: string; // It's useful to know the city for an area
+  city: string; 
   totalDemand: number;
-  clients: ClientName[]; // List of clients contributing to this area's demand
+  clients: ClientName[]; 
 }
 
 export interface MultiClientHotspotCity {
@@ -44,4 +42,8 @@ export interface MultiClientHotspotCity {
   clientCount: number;
 }
 
-// Removed CityWithSingleClient and PostingSuggestions types
+// For Dexie local sync status
+export interface LocalSyncMeta {
+  id: string; // e.g., 'lastSyncStatus'
+  timestamp: number | null; // Store as number (Date.getTime())
+}
