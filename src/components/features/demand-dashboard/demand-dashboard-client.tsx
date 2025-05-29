@@ -42,7 +42,7 @@ interface DemandDashboardClientProps {
 }
 
 export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardClientProps) {
-  const [selectedDate, setSelectedDate] = useState<Date>(initialSelectedDate); 
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date(initialSelectedDate)); 
   const selectedDateString = useMemo(() => format(selectedDate, 'yyyy-MM-dd'), [selectedDate]);
 
   // Live query for demand data for the selected date
@@ -113,7 +113,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
 
     return () => window.removeEventListener('resize', calculateRadius);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDateString, isClientRendered]); // Removed handleSyncData, localDemandData, lastSyncedDate to prevent potential loops. Sync is triggered by selectedDateString change primarily.
+  }, [selectedDateString, isClientRendered]);
 
 
   const filteredDemandData = useMemo(() => {
@@ -131,8 +131,15 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
   const multiClientHotspots = useMemo(() => calculateMultiClientHotspots(filteredDemandData), [filteredDemandData]);
   
   const handleFilterChange = (name: string, value: string | Date | ClientName | undefined) => {
-    if (name === 'date' && value instanceof Date && isValid(value)) {
-      setSelectedDate(value);
+    if (name === 'date') {
+      if (value instanceof Date && isValid(value)) {
+        setSelectedDate(value);
+      } else if (value === undefined) {
+        // If date is cleared or invalid, reset to today or last valid date
+        // For now, we'll reset to today. Or, you could choose not to update.
+        toast({ title: "Date Invalid", description: "Date was cleared or invalid, resetting to today.", variant: "default" });
+        setSelectedDate(startOfDay(new Date()));
+      }
     } else if (name === 'client' || name === 'city') {
       setFilters(prev => ({ ...prev, [name]: value as string | ClientName | undefined }));
     }
@@ -152,8 +159,8 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Filter & Sync Demand Data</CardTitle>
-          <CardDescription>
+          <CardTitle className="text-xl font-semibold">Filter & Sync Demand Data</CardTitle>
+          <CardDescription className="text-sm text-muted-foreground">
             Refine local data or sync with cloud. Last synced: {lastSyncedDate ? format(lastSyncedDate, 'PPP p') : 'Never'} for {lastSyncedDate ? format(lastSyncedDate, 'yyyy-MM-dd') : 'N/A'}
           </CardDescription>
         </CardHeader>
@@ -198,7 +205,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
         <>
           <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
             <Card>
-              <CardHeader><CardTitle className="flex items-center gap-2"><MapPin className="text-primary"/> Demand by City</CardTitle><CardDescription>Top 10 cities by total demand.</CardDescription></CardHeader>
+              <CardHeader><CardTitle className="text-xl font-semibold flex items-center gap-2"><MapPin className="text-primary"/> Demand by City</CardTitle><CardDescription className="text-sm text-muted-foreground">Top 10 cities by total demand.</CardDescription></CardHeader>
               <CardContent className="h-[300px] sm:h-[350px]">
                 {isClientRendered ? (
                   <ResponsiveContainer width="100%" height="100%">
@@ -216,7 +223,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
             </Card>
 
             <Card>
-              <CardHeader><CardTitle  className="flex items-center gap-2"><Users className="text-primary"/> Demand by Client</CardTitle><CardDescription>Distribution of demand across clients.</CardDescription></CardHeader>
+              <CardHeader><CardTitle  className="text-xl font-semibold flex items-center gap-2"><Users className="text-primary"/> Demand by Client</CardTitle><CardDescription className="text-sm text-muted-foreground">Distribution of demand across clients.</CardDescription></CardHeader>
               <CardContent className="h-[300px] sm:h-[350px]">
                 {isClientRendered ? (
                   <ResponsiveContainer width="100%" height="100%">
@@ -233,7 +240,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
             </Card>
             
             <Card className="xl:col-span-1"> 
-              <CardHeader><CardTitle className="flex items-center gap-2"><TrendingUp className="text-primary"/> Top Performing Areas</CardTitle><CardDescription>Highest demand areas.</CardDescription></CardHeader>
+              <CardHeader><CardTitle className="text-xl font-semibold flex items-center gap-2"><TrendingUp className="text-primary"/> Top Performing Areas</CardTitle><CardDescription className="text-sm text-muted-foreground">Highest demand areas.</CardDescription></CardHeader>
               <CardContent className="h-[300px] sm:h-[350px] overflow-y-auto">
                 {isClientRendered && topAreaDemandForChart.length > 0 ? (
                   <ul className="space-y-3">
@@ -245,7 +252,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                     ))}
                   </ul>
                 ) : isClientRendered ? (
-                  <p className="text-center text-sm text-muted-foreground pt-10">No area data available.</p>
+                  <p className="text-center text-sm text-muted-foreground pt-10">No area data available for the current selection.</p>
                 ) : <Skeleton className="w-full h-full"/> }
               </CardContent>
             </Card>
@@ -253,7 +260,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
 
           <div className="grid gap-6 md:grid-cols-2">
             <Card> 
-              <CardHeader><CardTitle className="flex items-center gap-2"><Zap className="text-primary"/> Multi-Client Hotspot Cities</CardTitle><CardDescription>Cities with demand from multiple clients.</CardDescription></CardHeader>
+              <CardHeader><CardTitle className="text-xl font-semibold flex items-center gap-2"><Zap className="text-primary"/> Multi-Client Hotspot Cities</CardTitle><CardDescription className="text-sm text-muted-foreground">Cities with demand from multiple clients.</CardDescription></CardHeader>
               <CardContent className="min-h-[200px] overflow-y-auto">
                 {isClientRendered && multiClientHotspots.length > 0 ? (
                   <ul className="space-y-3">
@@ -266,12 +273,12 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                     ))}
                   </ul>
                 ) : isClientRendered ? (
-                  <p className="text-center text-sm text-muted-foreground pt-10">No multi-client hotspots found.</p>
+                  <p className="text-center text-sm text-muted-foreground pt-10">No multi-client hotspots found for the current selection.</p>
                 ) : <Skeleton className="w-full h-[180px]"/> }
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle className="flex items-center gap-2"><Info className="text-primary" /> Data Source</CardTitle><CardDescription>Details about the displayed data.</CardDescription></CardHeader>
+              <CardHeader><CardTitle className="text-xl font-semibold flex items-center gap-2"><Info className="text-primary" /> Data Source</CardTitle><CardDescription className="text-sm text-muted-foreground">Details about the displayed data.</CardDescription></CardHeader>
               <CardContent className="min-h-[200px] flex flex-col items-center justify-center space-y-2">
                   <p className="text-sm text-muted-foreground">Displaying data for: <span className="font-semibold text-foreground">{format(selectedDate, 'PPP')}</span></p>
                   <p className="text-sm text-muted-foreground">Last synced with cloud: {lastSyncedDate ? <span className="font-semibold text-foreground">{format(lastSyncedDate, 'PPP p')}</span> : <span className="font-semibold text-foreground">Never</span>}</p>
@@ -284,7 +291,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
           </div>
           
           <Card>
-            <CardHeader><CardTitle>Detailed Demand Data</CardTitle><CardDescription>Locally cached records for the selected date. Demand Tiers: High &gt; 20, Medium 10-20, Low &lt; 10.</CardDescription></CardHeader>
+            <CardHeader><CardTitle className="text-xl font-semibold">Detailed Demand Data</CardTitle><CardDescription className="text-sm text-muted-foreground">Locally cached records for the selected date. Demand Tiers: High &gt; 20, Medium 10-20, Low &lt; 10.</CardDescription></CardHeader>
             <CardContent>
               {isClientRendered && filteredDemandData.length > 0 ? (
                 <div className="max-h-[400px] overflow-auto rounded-md border">
@@ -293,8 +300,6 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                     <TableBody>
                       {filteredDemandData.map((item: LocalDemandRecord) => { 
                         const tier = getDemandTier(item.demandScore); 
-                        // Use localId if available and unique, otherwise fallback to item.id (original id)
-                        // For lists, React needs a unique key. localId is guaranteed unique by Dexie.
                         const key = item.localId !== undefined ? item.localId : item.id;
                         return (
                         <TableRow key={key}><TableCell className="text-xs sm:text-sm">{item.client}</TableCell><TableCell className="text-xs sm:text-sm">{item.city}</TableCell><TableCell className="text-xs sm:text-sm">{item.area}</TableCell><TableCell className="text-xs sm:text-sm">{item.demandScore}</TableCell><TableCell><Badge variant={tier.variant}>{tier.label}</Badge></TableCell><TableCell className="text-xs sm:text-sm">{item.date}</TableCell></TableRow>
@@ -336,3 +341,4 @@ function DashboardSkeleton() {
     </div>
   );
 }
+

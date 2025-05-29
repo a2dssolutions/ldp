@@ -35,8 +35,8 @@ interface DemandHistoryClientProps {
 export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHistoryClientProps) {
   const [historicalData, setHistoricalData] = useState<DemandData[]>([]);
   const [dateRange, setDateRange] = useState<DateRange>({ 
-    from: initialFromDate, 
-    to: initialToDate 
+    from: initialFromDate ? new Date(initialFromDate) : undefined, 
+    to: initialToDate ? new Date(initialToDate) : undefined 
   });
   const [filters, setFilters] = useState<{ client?: ClientName; city?: string }>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -101,8 +101,8 @@ export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHi
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Filter Historical Data</CardTitle>
-          <CardDescription>Select date range and apply filters to explore past demand trends.</CardDescription>
+          <CardTitle className="text-xl font-semibold">Filter Historical Data</CardTitle>
+          <CardDescription className="text-sm text-muted-foreground">Select date range and apply filters to explore past demand trends.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 items-end">
@@ -157,8 +157,8 @@ export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHi
       {chartData.length > 0 && !isLoading && (
         <Card>
           <CardHeader>
-            <CardTitle>Demand Trend</CardTitle>
-            <CardDescription>Total demand score over the selected period.</CardDescription>
+            <CardTitle className="text-xl font-semibold">Demand Trend</CardTitle>
+            <CardDescription className="text-sm text-muted-foreground">Total demand score over the selected period.</CardDescription>
           </CardHeader>
           <CardContent className="h-[350px]">
             {isClient ? (
@@ -184,7 +184,10 @@ export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHi
 
       <Card>
         <CardHeader>
-          <CardTitle>Historical Data Records</CardTitle>
+          <CardTitle className="text-xl font-semibold">Historical Data Records</CardTitle>
+           <CardDescription className="text-sm text-muted-foreground">
+            {historicalData.length > 0 ? `Showing ${historicalData.length} records for the selected period.` : 'No records to display for the selected criteria.'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -224,3 +227,4 @@ export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHi
     </div>
   );
 }
+
