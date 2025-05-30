@@ -1,6 +1,7 @@
 
 'use client';
 
+import * as React from 'react'; // Ensure React is imported
 import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,7 +22,7 @@ import {
   getTotalLocalRecordsCount,
 } from '@/lib/services/demand-data-service';
 import type { AppSettings } from '@/lib/services/config-service';
-import type { LocalSyncMeta, DataSourceTestResult, HealthCheckStatus } from '@/lib/types';
+import type { LocalSyncMeta, DataSourceTestResult, HealthCheckStatus, ClientName } from '@/lib/types';
 import { Loader2, RefreshCw, Database, FileText, CheckCircle, XCircle, Info, Trash2, DownloadCloud, PlusCircle, ListFilter, AlertTriangle, HardDrive, Activity, Map, Pencil, Trash } from 'lucide-react';
 import { format, isValid } from 'date-fns';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -260,7 +261,8 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
     } catch (error) {
       console.error("Error testing data sources:", error);
       toast({ title: "Error During Source Test", description: `An unexpected error occurred: ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
-      setHealthCheckResults(initialSettings.sheetUrls ? (Object.keys(initialSettings.sheetUrls) as Array<keyof typeof initialSettings.sheetUrls>).map(client => ({
+      const clientNamesArray = Object.keys(initialSettings.sheetUrls || {}) as ClientName[];
+      setHealthCheckResults(clientNamesArray.length > 0 ? clientNamesArray.map(client => ({
         client,
         status: 'url_error' as HealthCheckStatus,
         message: 'Failed to run tests.',
@@ -285,11 +287,11 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
   };
 
   return (
-    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+    <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><RefreshCw className="h-5 w-5 text-primary" /> Manual Firestore Sync</CardTitle>
-          <CardDescription>Trigger sync from Google Sheets to Firestore (Cloud Database).</CardDescription>
+          <CardTitle className="flex items-center gap-2 text-xl font-semibold"><RefreshCw className="h-5 w-5 text-primary" /> Manual Firestore Sync</CardTitle>
+          <CardDescription className="text-sm text-muted-foreground">Trigger sync from Google Sheets to Firestore (Cloud Database).</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <Button onClick={handleManualFirestoreSync} disabled={isSyncingFirestore || isSyncingTodayToLocal || isSavingSettings || isTestingSources} className="w-full">
@@ -316,8 +318,8 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Database className="h-5 w-5 text-primary" /> Local Cache Management</CardTitle>
-          <CardDescription>Manage the locally cached (IndexedDB) demand data on this browser.</CardDescription>
+          <CardTitle className="flex items-center gap-2 text-xl font-semibold"><Database className="h-5 w-5 text-primary" /> Local Cache Management</CardTitle>
+          <CardDescription className="text-sm text-muted-foreground">Manage the locally cached (IndexedDB) demand data on this browser.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="p-3 border rounded-md bg-muted/50 space-y-1">
@@ -341,10 +343,10 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
         <CardFooter><p className="text-xs text-muted-foreground">Manages data cached in your browser. Does not affect cloud data.</p></CardFooter>
       </Card>
 
-      <Card>
+      <Card className="xl:col-span-1">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><ListFilter className="h-5 w-5 text-primary" /> Manage Blacklisted Cities</CardTitle>
-          <CardDescription>Cities in this list can be optionally hidden in the City Analysis report.</CardDescription>
+          <CardTitle className="flex items-center gap-2 text-xl font-semibold"><ListFilter className="h-5 w-5 text-primary" /> Manage Blacklisted Cities</CardTitle>
+          <CardDescription className="text-sm text-muted-foreground">Cities in this list can be optionally hidden in the City Analysis report.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex space-x-2">
@@ -354,9 +356,10 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
               value={newBlacklistedCity}
               onChange={(e) => setNewBlacklistedCity(e.target.value)}
               disabled={isSavingSettings || isTestingSources}
+              className="h-9"
             />
-            <Button onClick={handleAddBlacklistedCity} disabled={isSavingSettings || !newBlacklistedCity.trim() || isTestingSources}>
-              {isSavingSettings && !newBlacklistedCity.trim() ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />}
+            <Button onClick={handleAddBlacklistedCity} disabled={isSavingSettings || !newBlacklistedCity.trim() || isTestingSources} size="sm">
+              {isSavingSettings && newBlacklistedCity.trim() ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />}
               Add
             </Button>
           </div>
@@ -364,11 +367,11 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
             <ScrollArea className="h-40 w-full rounded-md border p-2">
               <ul className="space-y-1">
                 {(currentSettings.blacklistedCities || []).map((city) => (
-                  <li key={city} className="flex justify-between items-center p-1.5 text-sm bg-muted/30 rounded">
+                  <li key={city} className="flex justify-between items-center p-1.5 text-sm bg-muted/30 rounded hover:bg-muted/50">
                     <span>{city}</span>
                     <Button
                       variant="ghost"
-                      size="sm"
+                      size="icon"
                       className="h-6 w-6 p-0"
                       onClick={() => handleRemoveBlacklistedCity(city)}
                       disabled={isSavingSettings}
@@ -387,10 +390,10 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
         <CardFooter><p className="text-xs text-muted-foreground">Blacklist is stored in Firestore and affects all users.</p></CardFooter>
       </Card>
       
-      <Card className="lg:col-span-2">
+      <Card className="lg:col-span-2 xl:col-span-2">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Map className="h-5 w-5 text-primary" /> City Name Mappings</CardTitle>
-          <CardDescription>Standardize city names by mapping variations (e.g., "Bangalore" to "Bengaluru"). Applied during data ingestion.</CardDescription>
+          <CardTitle className="flex items-center gap-2 text-xl font-semibold"><Map className="h-5 w-5 text-primary" /> City Name Mappings</CardTitle>
+          <CardDescription className="text-sm text-muted-foreground">Standardize city names by mapping variations (e.g., "Bangalore" to "Bengaluru"). Applied during data ingestion.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
@@ -402,6 +405,7 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
                 value={newOriginalCityName}
                 onChange={(e) => setNewOriginalCityName(e.target.value)}
                 disabled={isSavingSettings}
+                 className="h-9"
               />
             </div>
             <div className="space-y-1">
@@ -412,19 +416,20 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
                 value={newMappedCityName}
                 onChange={(e) => setNewMappedCityName(e.target.value)}
                 disabled={isSavingSettings}
+                className="h-9"
               />
             </div>
           </div>
-           <Button onClick={handleAddCityMapping} disabled={isSavingSettings || !newOriginalCityName.trim() || !newMappedCityName.trim()} className="w-full sm:w-auto">
+           <Button onClick={handleAddCityMapping} disabled={isSavingSettings || !newOriginalCityName.trim() || !newMappedCityName.trim()} className="w-full sm:w-auto mt-2" size="sm">
             {isSavingSettings && (newOriginalCityName.trim() && newMappedCityName.trim()) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />}
             Add/Update Mapping
           </Button>
 
           {(Object.keys(currentSettings.cityMappings || {}).length || 0) > 0 ? (
-            <ScrollArea className="h-48 w-full rounded-md border p-2">
+            <ScrollArea className="h-48 w-full rounded-md border p-2 mt-2">
               <ul className="space-y-2">
                 {Object.entries(currentSettings.cityMappings || {}).map(([original, mapped]) => (
-                  <li key={original} className="flex justify-between items-center p-2 text-sm bg-muted/30 rounded">
+                  <li key={original} className="flex justify-between items-center p-2 text-sm bg-muted/30 rounded hover:bg-muted/50">
                     <div>
                       <span className="font-semibold">{original}</span>
                       <span className="text-muted-foreground mx-1">→</span>
@@ -432,7 +437,7 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
                     </div>
                     <Button
                       variant="ghost"
-                      size="sm"
+                      size="icon"
                       className="h-7 w-7 p-0"
                       onClick={() => handleRemoveCityMapping(original)}
                       disabled={isSavingSettings}
@@ -445,20 +450,20 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
               </ul>
             </ScrollArea>
           ) : (
-            <p className="text-sm text-muted-foreground text-center py-2">No city name mappings are currently configured.</p>
+            <p className="text-sm text-muted-foreground text-center py-2 mt-2">No city name mappings are currently configured.</p>
           )}
         </CardContent>
         <CardFooter><p className="text-xs text-muted-foreground">City mappings are stored in Firestore and applied during data ingestion.</p></CardFooter>
       </Card>
 
 
-      <Card className="lg:col-span-1 xl:col-span-1"> {/* Adjusted span to ensure it fits */}
+      <Card className="lg:col-span-1 xl:col-span-1"> 
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5 text-primary" /> Data Source Health Checks</CardTitle>
-          <CardDescription>Test connectivity and header validity for configured Google Sheet sources.</CardDescription>
+          <CardTitle className="flex items-center gap-2 text-xl font-semibold"><Activity className="h-5 w-5 text-primary" /> Data Source Health Checks</CardTitle>
+          <CardDescription className="text-sm text-muted-foreground">Test connectivity and header validity for configured Google Sheet sources.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Button onClick={handleTestSourceConnections} disabled={isTestingSources || isSyncingFirestore || isSyncingTodayToLocal} className="w-full sm:w-auto">
+          <Button onClick={handleTestSourceConnections} disabled={isTestingSources || isSyncingFirestore || isSyncingTodayToLocal} className="w-full">
             {isTestingSources ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <HardDrive className="mr-2 h-4 w-4" />}
             Test All Data Sources
           </Button>
@@ -466,14 +471,14 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
             <ScrollArea className="mt-4 max-h-60 w-full rounded-md border">
               <div className="p-4 space-y-3">
                 {healthCheckResults.map((result) => (
-                  <Card key={result.client} className="shadow-none">
+                  <Card key={result.client} className="shadow-none border bg-card">
                     <CardHeader className="p-3">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           {getStatusIcon(result.status)}
-                          <CardTitle className="text-base">{result.client}</CardTitle>
+                          <CardTitle className="text-base font-medium">{result.client}</CardTitle>
                         </div>
-                        <Badge variant={result.status === 'success' ? 'default' : result.status === 'url_error' || result.status === 'header_mismatch' || result.status === 'parse_error' ? 'destructive' : 'secondary'}>
+                        <Badge variant={result.status === 'success' ? 'default' : result.status === 'url_error' || result.status === 'header_mismatch' || result.status === 'parse_error' ? 'destructive' : 'secondary'} className="text-xs">
                           {result.status.replace('_', ' ').toUpperCase()}
                         </Badge>
                       </div>
@@ -483,8 +488,8 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
                         <p className="text-muted-foreground">{result.message}</p>
                         {result.status === 'header_mismatch' && (
                           <>
-                            <p className="mt-1"><strong>Expected Headers:</strong> {result.expectedHeaders?.join(', ') || 'N/A'}</p>
-                            <p><strong>Found Headers:</strong> {result.foundHeaders?.join(', ') || 'N/A'}</p>
+                            <p className="mt-1"><strong>Expected:</strong> <span className="font-mono text-xs">{result.expectedHeaders?.join(', ') || 'N/A'}</span></p>
+                            <p><strong>Found:</strong> <span className="font-mono text-xs">{result.foundHeaders?.join(', ') || 'N/A'}</span></p>
                           </>
                         )}
                          {result.url && <p className="mt-1 truncate"><strong>URL:</strong> <a href={result.url} target="_blank" rel="noopener noreferrer" className="underline text-primary hover:text-primary/80">{result.url}</a></p>}
@@ -499,10 +504,10 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
         <CardFooter><p className="text-xs text-muted-foreground">Helps diagnose issues with data ingestion from Google Sheets.</p></CardFooter>
       </Card>
 
-      <Card>
+      <Card className="lg:col-span-full xl:col-span-1"> {/* Example of making a card span full on lg, then back to 1 on xl */}
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5 text-primary" /> System Logs</CardTitle>
-          <CardDescription>Access system logs for debugging. (Placeholder)</CardDescription>
+          <CardTitle className="flex items-center gap-2 text-xl font-semibold"><FileText className="h-5 w-5 text-primary" /> System Logs</CardTitle>
+          <CardDescription className="text-sm text-muted-foreground">Access system logs for debugging. (Placeholder)</CardDescription>
         </CardHeader>
         <CardContent><p className="text-sm text-muted-foreground">Log Level: INFO. Recent Errors: 0.</p><Button variant="outline" className="mt-2 w-full" disabled>Access Logs</Button></CardContent>
         <CardFooter><p className="text-xs text-muted-foreground">View system and error logs (feature placeholder).</p></CardFooter>

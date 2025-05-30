@@ -2,6 +2,7 @@
 'use client';
 
 import type { ChangeEvent } from 'react';
+import * as React from 'react'; // Ensure React is imported
 import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -29,7 +30,6 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
   const [hasSheetUrlChanges, setHasSheetUrlChanges] = useState(false);
   const { toast } = useToast();
 
-  // Apply theme on initial load and when theme state changes
   useEffect(() => {
     if (theme === 'dark') {
       document.documentElement.classList.add('dark');
@@ -38,23 +38,39 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
     }
   }, [theme]);
 
+  // Update local state if initialSettings prop changes (e.g., after a save from another browser tab)
+  useEffect(() => {
+    setSheetUrls(initialSettings.sheetUrls);
+    setTheme(initialSettings.theme);
+    setDefaultDateRange(initialSettings.defaultDateRange);
+  }, [initialSettings]);
+
+
   const handleSettingChangeAndSave = async (changedSettings: Partial<AppSettings>) => {
     setIsSaving(true);
-    const newSettings = { // Construct the full settings object to save
-      sheetUrls: changedSettings.sheetUrls || sheetUrls,
-      theme: changedSettings.theme || theme,
-      defaultDateRange: changedSettings.defaultDateRange || defaultDateRange,
+    const currentFullSettings = { // Construct the full settings object from current state
+      sheetUrls: sheetUrls,
+      theme: theme,
+      defaultDateRange: defaultDateRange,
+      blacklistedCities: initialSettings.blacklistedCities || [], // Preserve existing blacklist
+      cityMappings: initialSettings.cityMappings || {}, // Preserve existing city mappings
     };
-    const result = await saveAppSettingsAction(newSettings);
+
+    // Merge the specific changes into the full settings object
+    const newSettingsToSave = { ...currentFullSettings, ...changedSettings };
+    
+    const result = await saveAppSettingsAction(newSettingsToSave);
     if (result.success) {
       toast({ title: 'Settings Updated', description: result.message });
-      // Update local state if a specific part was changed, e.g. for direct UI feedback
+      // Update local state based on what was actually changed and saved
       if (changedSettings.sheetUrls) setSheetUrls(changedSettings.sheetUrls);
       if (changedSettings.theme) setTheme(changedSettings.theme);
       if (changedSettings.defaultDateRange) setDefaultDateRange(changedSettings.defaultDateRange);
 
     } else {
       toast({ title: 'Error Updating Settings', description: result.message, variant: 'destructive' });
+      // Optionally revert local state if save fails, or allow user to retry
+      // For now, local state remains, user can try saving again.
     }
     setIsSaving(false);
   };
@@ -65,18 +81,18 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
   };
 
   const handleSaveSheetUrls = () => {
-    handleSettingChangeAndSave({ sheetUrls });
+    handleSettingChangeAndSave({ sheetUrls }); // Only pass sheetUrls part of settings
     setHasSheetUrlChanges(false);
   };
 
   const handleThemeToggle = (checked: boolean) => {
     const newTheme = checked ? 'dark' : 'light';
-    setTheme(newTheme); // Local state update for immediate UI change
+    setTheme(newTheme); 
     handleSettingChangeAndSave({ theme: newTheme });
   };
 
   const handleDefaultDateRangeChange = (value: string) => {
-    setDefaultDateRange(value); // Local state update
+    setDefaultDateRange(value); 
     handleSettingChangeAndSave({ defaultDateRange: value });
   };
 
@@ -85,11 +101,11 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
       <Card className="lg:col-span-2">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-xl font-semibold">
             <FileSpreadsheet className="h-5 w-5 text-primary" />
             Data Source Configuration
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-sm text-muted-foreground">
             Manage the Google Sheet URLs for each data source. Changes are saved to Firestore.
           </CardDescription>
         </CardHeader>
@@ -117,16 +133,16 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-xl font-semibold">
             <Palette className="h-5 w-5 text-primary" />
             Appearance
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-sm text-muted-foreground">
             Customize the look and feel of the application.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between space-x-2 p-3 border rounded-lg bg-background/50">
+          <div className="flex items-center justify-between space-x-2 p-3 border rounded-lg bg-muted/50">
             <Label htmlFor="dark-mode-switch" className="flex flex-col space-y-1">
               <span>Dark Mode</span>
               <span className="font-normal leading-snug text-muted-foreground text-xs">
@@ -145,16 +161,16 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-xl font-semibold">
             <UserCog className="h-5 w-5 text-primary" />
             User Preferences
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-sm text-muted-foreground">
             Set your default preferences for the application.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2 p-3 border rounded-lg bg-background/50">
+          <div className="space-y-2 p-3 border rounded-lg bg-muted/50">
             <Label htmlFor="default-date-range">Default Dashboard Date</Label>
             <Select
               value={defaultDateRange}

@@ -2,6 +2,7 @@
 'use client';
 
 import type { ChangeEvent } from 'react';
+import * as React from 'react'; // Ensured React is imported
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Bar, Pie, BarChart, PieChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, CartesianGrid, Cell } from 'recharts';
 import { Button } from '@/components/ui/button';
@@ -24,7 +25,7 @@ import type { DemandData, ClientName, CityDemand, ClientDemand, AreaDemand, Mult
 import type { LocalDemandRecord } from '@/lib/dexie';
 import { format, parseISO, isToday, isValid, startOfDay } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
-import { Users, MapPin, TrendingUp, Zap, Info, Search, Eye, FileText, List, Columns, Download } from 'lucide-react';
+import { Users, MapPin, TrendingUp, Zap, Info, Search, Eye, FileText, List, Columns, Download, AlertCircle } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -64,11 +65,10 @@ function exportToCsv(filename: string, data: any[], headersConfig?: Record<strin
       dataKeys
         .map(key => {
           let cellValue = row[key];
-          if (Array.isArray(cellValue)) { // Handle array values, e.g., 'clients'
-            cellValue = cellValue.join(';'); // Join array elements with a semicolon
+          if (Array.isArray(cellValue)) { 
+            cellValue = cellValue.join(';'); 
           }
           let cell = cellValue === null || cellValue === undefined ? '' : String(cellValue);
-          // Basic CSV escaping
           if (cell.search(/("|,|\n)/g) >= 0) {
             cell = `"${cell.replace(/"/g, '""')}"`;
           }
@@ -100,11 +100,11 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
   
   const selectedDateString = useMemo(() => {
     if (!selectedDate || !isValid(selectedDate)) {
-      console.warn("DemandDashboardClient: selectedDate became invalid for formatting, defaulting to current date string for query.", selectedDate);
-      return format(new Date(), 'yyyy-MM-dd'); 
+      console.warn("DemandDashboardClient: selectedDate became invalid, defaulting to initialSelectedDate's equivalent string for query.");
+      return format(new Date(initialSelectedDate), 'yyyy-MM-dd'); 
     }
     return format(selectedDate, 'yyyy-MM-dd');
-  }, [selectedDate]);
+  }, [selectedDate, initialSelectedDate]);
 
   const localDemandData = useLiveQuery<LocalDemandRecord[], LocalDemandRecord[]>(
     () => getLocalDemandDataForDate(selectedDateString),
@@ -135,7 +135,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
     setIsClientRendered(true);
     const calculateRadius = () => {
       if (typeof window !== 'undefined') {
-        const newRadius = Math.max(60, Math.min(120, window.innerWidth / 4 - 40)); 
+        const newRadius = Math.max(60, Math.min(120, window.innerWidth / 6 - 30)); // Adjusted for potentially smaller chart areas
         setDynamicPieRadius(newRadius);
       }
     };
@@ -146,29 +146,20 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
   }, []);
 
   useEffect(() => {
-    if (isClientRendered && isValid(selectedDate)) {
+    if (isClientRendered && isValid(selectedDate) && localDemandData !== undefined) {
       const dataPresentForSelectedDate = localDemandData && localDemandData.length > 0;
       let showSyncMessage = false;
       let message = "";
 
-      if (isToday(selectedDate)) {
-         if (!dataPresentForSelectedDate) {
+      if (!dataPresentForSelectedDate) {
           showSyncMessage = true;
-          message = `No local data for today (${selectedDateString}). Use Admin Panel to sync if needed.`;
-        }
-        // No automatic sync if data for today IS present. User must use Admin Panel for forced refresh.
-      } else { // For past dates
-        if (!dataPresentForSelectedDate) {
+          message = `No local data for ${selectedDateString}. Use Admin Panel or Data Ingestion to add data.`;
+      } else if (isToday(selectedDate) && (!lastSyncedDate || !isToday(lastSyncedDate))) {
           showSyncMessage = true;
-          message = `No local data found for ${selectedDateString}. Use Admin Panel to sync specific dates if necessary.`;
-        }
+          message = `Local data for today (${selectedDateString}) might be outdated. Last sync was ${lastSyncedDate ? format(lastSyncedDate, 'PPP p') : 'never'}. Consider syncing via Admin Panel for latest.`;
       }
       
-      if (showSyncMessage) {
-        setSyncStatusMessage(message);
-      } else {
-        setSyncStatusMessage(null);
-      }
+      setSyncStatusMessage(showSyncMessage ? message : null);
     }
   }, [selectedDate, isClientRendered, localDemandData, lastSyncedDate, selectedDateString, toast]);
 
@@ -224,7 +215,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
         <CardHeader>
           <CardTitle className="text-xl font-semibold">Filter Demand Data</CardTitle>
           <CardDescription className="text-sm text-muted-foreground">
-            Apply filters to view locally cached data. Last local sync for any date: {lastSyncedDate && isValid(lastSyncedDate) ? format(lastSyncedDate, 'PPP p') : 'Never'}
+            Apply filters to view locally cached data. Last local data update: {lastSyncedDate && isValid(lastSyncedDate) ? format(lastSyncedDate, 'PPP p') : 'Never'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -257,11 +248,11 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
       </Card>
 
       {syncStatusMessage && (
-        <Alert>
-          <Info className="h-4 w-4" />
-          <AlertTitle>Sync Status</AlertTitle>
+        <Alert variant="default"> {/* Changed to default for info, can be 'destructive' for errors */}
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Data Status</AlertTitle>
           <AlertDescription>
-            {syncStatusMessage} Use Admin Panel to sync if needed.
+            {syncStatusMessage}
           </AlertDescription>
         </Alert>
       )}
@@ -275,10 +266,10 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={cityDemandForChart}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis dataKey="city" stroke="hsl(var(--foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                      <XAxis dataKey="city" stroke="hsl(var(--foreground))" fontSize={12} tickLine={false} axisLine={false} interval={0} angle={-30} textAnchor="end" height={50}/>
                       <YAxis stroke="hsl(var(--foreground))" fontSize={12} tickLine={false} axisLine={false} />
                       <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)'}} labelStyle={{ color: 'hsl(var(--foreground))' }} />
-                      <Legend wrapperStyle={{fontSize: "12px"}}/>
+                      <Legend wrapperStyle={{fontSize: "12px", paddingTop: '10px'}}/>
                       <Bar dataKey="totalDemand" name="Total Demand" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -319,7 +310,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                         ))}
                       </Pie>
                       <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)'}} labelStyle={{ color: 'hsl(var(--foreground))' }} />
-                      <Legend wrapperStyle={{fontSize: "12px"}}/>
+                      <Legend wrapperStyle={{fontSize: "12px", paddingTop: '10px'}}/>
                     </PieChart>
                   </ResponsiveContainer>
                 ) : (
@@ -337,17 +328,17 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                     <CardDescription className="text-sm text-muted-foreground">Highest demand areas (Top 5 from local data).</CardDescription>
                 </div>
                 {areaDemand.length > 5 && (
-                    <Dialog onOpenChange={() => setShowAreaTableView(false)}> {/* Reset view on close */}
+                    <Dialog onOpenChange={() => setShowAreaTableView(false)}> 
                         <DialogTrigger asChild>
                             <Button variant="outline" size="sm" className="ml-auto gap-1.5 text-sm">
                                 <Eye className="h-4 w-4" /> View All
                             </Button>
                         </DialogTrigger>
-                        <DialogContent className="sm:max-w-[725px]">
+                        <DialogContent className="sm:max-w-2xl md:max-w-3xl lg:max-w-4xl w-[90vw]">
                             <DialogHeader>
-                                <div className="flex justify-between items-center mb-2">
-                                    <DialogTitle>All Top Performing Areas</DialogTitle>
-                                    <div className="flex items-center gap-2">
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-2">
+                                    <DialogTitle className="text-lg">All Top Performing Areas</DialogTitle>
+                                    <div className="flex items-center gap-2 flex-wrap">
                                       <Button variant="outline" size="sm" onClick={() => setShowAreaTableView(prev => !prev)} className="gap-1.5 text-sm">
                                           {showAreaTableView ? <List className="h-4 w-4" /> : <Columns className="h-4 w-4" />}
                                           {showAreaTableView ? 'View as List' : 'View as Table'}
@@ -364,11 +355,12 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                                     </div>
                                 </div>
                                 <DialogDescription>
-                                    Full list of areas sorted by total demand for the selected date and filters.
+                                    Full list of areas sorted by total demand for {format(datePickerDate, 'PPP')}.
                                 </DialogDescription>
                             </DialogHeader>
-                            <ScrollArea className="h-[400px] w-full rounded-md border p-4">
-                                {showAreaTableView ? (
+                            <ScrollArea className="h-[60vh] w-full rounded-md border p-2 sm:p-4">
+                                {areaDemand.length === 0 && <p className="text-center text-sm text-muted-foreground py-4">No area data available for current filters.</p>}
+                                {areaDemand.length > 0 && ( showAreaTableView ? (
                                     <Table>
                                         <TableHeader>
                                             <TableRow>
@@ -381,9 +373,9 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                                         <TableBody>
                                             {areaDemand.map((item, index) => (
                                             <TableRow key={`${item.city}-${item.area}-${index}-table`}>
-                                                <TableCell className="font-medium">{item.area}</TableCell>
-                                                <TableCell>{item.city}</TableCell>
-                                                <TableCell className="text-xs">{item.clients.join(', ')}</TableCell>
+                                                <TableCell className="font-medium whitespace-nowrap">{item.area}</TableCell>
+                                                <TableCell className="whitespace-nowrap">{item.city}</TableCell>
+                                                <TableCell className="text-xs whitespace-nowrap">{item.clients.join(', ')}</TableCell>
                                                 <TableCell className="text-right">
                                                     <Badge variant={getDemandTier(item.totalDemand).variant}>{item.totalDemand}</Badge>
                                                 </TableCell>
@@ -394,24 +386,23 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                                 ) : (
                                     <ul className="space-y-3">
                                         {areaDemand.map((item, index) => (
-                                        <li key={`${item.city}-${item.area}-${index}-list`} className="flex justify-between items-center p-2 rounded-md bg-card border">
+                                        <li key={`${item.city}-${item.area}-${index}-list`} className="flex justify-between items-center p-2 rounded-md bg-card border hover:bg-muted/50 transition-colors">
                                             <div><p className="font-semibold text-sm">{item.area}</p><p className="text-xs text-muted-foreground">{item.city} - Clients: {item.clients.join(', ')}</p></div>
                                             <Badge variant={getDemandTier(item.totalDemand).variant}>{item.totalDemand}</Badge>
                                         </li>
                                         ))}
                                     </ul>
-                                )}
-                                {areaDemand.length === 0 && <p className="text-center text-sm text-muted-foreground py-4">No area data available for current filters.</p>}
+                                ))}
                             </ScrollArea>
                         </DialogContent>
                     </Dialog>
                 )}
               </CardHeader>
-              <CardContent className="h-[280px] sm:h-[330px] overflow-y-auto">
+              <CardContent className="h-[280px] sm:h-[330px] overflow-y-auto p-4 space-y-2">
                 {topAreaDemandForChart.length > 0 ? (
-                  <ul className="space-y-3">
+                  <ul className="space-y-2">
                     {topAreaDemandForChart.map((item, index) => (
-                      <li key={`${item.city}-${item.area}-${index}-top`} className="flex justify-between items-center p-2 rounded-md bg-card border">
+                      <li key={`${item.city}-${item.area}-${index}-top`} className="flex justify-between items-center p-2 rounded-md bg-muted/30 border hover:bg-muted/50 transition-colors">
                         <div><p className="font-semibold text-sm">{item.area}</p><p className="text-xs text-muted-foreground">{item.city} - Clients: {item.clients.join(', ')}</p></div>
                         <Badge variant={getDemandTier(item.totalDemand).variant}>{item.totalDemand}</Badge>
                       </li>
@@ -432,17 +423,17 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                         <CardDescription className="text-sm text-muted-foreground">Cities with demand from multiple clients (Top 5 from local data).</CardDescription>
                     </div>
                      {multiClientHotspots.length > 5 && (
-                        <Dialog onOpenChange={() => setShowHotspotTableView(false)}> {/* Reset view on close */}
+                        <Dialog onOpenChange={() => setShowHotspotTableView(false)}> 
                             <DialogTrigger asChild>
                                 <Button variant="outline" size="sm" className="ml-auto gap-1.5 text-sm">
                                     <Eye className="h-4 w-4" /> View All
                                 </Button>
                             </DialogTrigger>
-                            <DialogContent className="sm:max-w-[725px]">
+                             <DialogContent className="sm:max-w-2xl md:max-w-3xl lg:max-w-4xl w-[90vw]">
                                 <DialogHeader>
-                                    <div className="flex justify-between items-center mb-2">
-                                        <DialogTitle>All Multi-Client Hotspot Cities</DialogTitle>
-                                        <div className="flex items-center gap-2">
+                                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-2">
+                                        <DialogTitle className="text-lg">All Multi-Client Hotspot Cities</DialogTitle>
+                                        <div className="flex items-center gap-2 flex-wrap">
                                             <Button variant="outline" size="sm" onClick={() => setShowHotspotTableView(prev => !prev)} className="gap-1.5 text-sm">
                                                 {showHotspotTableView ? <List className="h-4 w-4" /> : <Columns className="h-4 w-4" />}
                                                 {showHotspotTableView ? 'View as List' : 'View as Table'}
@@ -459,29 +450,30 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                                         </div>
                                     </div>
                                     <DialogDescription>
-                                        Full list of cities where multiple selected clients have demand.
+                                        Full list of cities where multiple selected clients have demand for {format(datePickerDate, 'PPP')}.
                                     </DialogDescription>
                                 </DialogHeader>
-                                <ScrollArea className="h-[400px] w-full rounded-md border p-4">
-                                    {showHotspotTableView ? (
+                                <ScrollArea className="h-[60vh] w-full rounded-md border p-2 sm:p-4">
+                                    {multiClientHotspots.length === 0 && <p className="text-center text-sm text-muted-foreground py-4">No multi-client hotspot data available.</p>}
+                                    {multiClientHotspots.length > 0 && ( showHotspotTableView ? (
                                         <Table>
                                             <TableHeader>
                                                 <TableRow>
                                                     <TableHead>City</TableHead>
                                                     <TableHead>Active Clients</TableHead>
-                                                    <TableHead className="text-right">Client Count</TableHead>
+                                                    <TableHead className="text-center">Client Count</TableHead>
                                                     <TableHead className="text-right">Total Demand</TableHead>
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
                                                 {multiClientHotspots.map((hotspot) => (
                                                 <TableRow key={`${hotspot.city}-all-table`}>
-                                                    <TableCell className="font-medium">{hotspot.city}</TableCell>
-                                                    <TableCell className="text-xs">{hotspot.activeClients.join(', ')}</TableCell>
-                                                    <TableCell className="text-right">
-                                                        <Badge variant="default">{hotspot.clientCount} Clients</Badge>
+                                                    <TableCell className="font-medium whitespace-nowrap">{hotspot.city}</TableCell>
+                                                    <TableCell className="text-xs whitespace-nowrap">{hotspot.activeClients.join(', ')}</TableCell>
+                                                    <TableCell className="text-center">
+                                                        <Badge variant="secondary">{hotspot.clientCount} Clients</Badge>
                                                     </TableCell>
-                                                    <TableCell className="text-right">{hotspot.totalDemand}</TableCell>
+                                                    <TableCell className="text-right whitespace-nowrap">{hotspot.totalDemand}</TableCell>
                                                 </TableRow>
                                                 ))}
                                             </TableBody>
@@ -489,26 +481,25 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                                     ) : (
                                         <ul className="space-y-3">
                                             {multiClientHotspots.map((hotspot) => (
-                                            <li key={`${hotspot.city}-all-list`} className="p-3 rounded-md bg-card border">
-                                                <div className="flex justify-between items-center"><p className="font-semibold text-base">{hotspot.city}</p><Badge variant="default">{hotspot.clientCount} Clients</Badge></div>
+                                            <li key={`${hotspot.city}-all-list`} className="p-3 rounded-md bg-card border hover:bg-muted/50 transition-colors">
+                                                <div className="flex justify-between items-center"><p className="font-semibold text-base">{hotspot.city}</p><Badge variant="secondary">{hotspot.clientCount} Clients</Badge></div>
                                                 <p className="text-sm text-muted-foreground">Active: {hotspot.activeClients.join(', ')}</p>
                                                 <p className="text-xs text-muted-foreground">Total Demand Score: {hotspot.totalDemand}</p>
                                             </li>
                                             ))}
                                         </ul>
-                                    )}
-                                    {multiClientHotspots.length === 0 && <p className="text-center text-sm text-muted-foreground py-4">No multi-client hotspot data available.</p>}
+                                    ))}
                                 </ScrollArea>
                             </DialogContent>
                         </Dialog>
                     )}
                 </CardHeader>
-              <CardContent className="min-h-[180px] overflow-y-auto"> 
+              <CardContent className="min-h-[180px] overflow-y-auto p-4 space-y-2"> 
                 {multiClientHotspots.length > 0 ? (
-                  <ul className="space-y-3">
+                  <ul className="space-y-2">
                     {multiClientHotspots.slice(0, 5).map((hotspot) => (
-                      <li key={`${hotspot.city}-top`} className="p-3 rounded-md bg-card border">
-                        <div className="flex justify-between items-center"><p className="font-semibold text-base">{hotspot.city}</p><Badge variant="default">{hotspot.clientCount} Clients</Badge></div>
+                      <li key={`${hotspot.city}-top`} className="p-3 rounded-md bg-muted/30 border hover:bg-muted/50 transition-colors">
+                        <div className="flex justify-between items-center"><p className="font-semibold text-base">{hotspot.city}</p><Badge variant="secondary">{hotspot.clientCount} Clients</Badge></div>
                         <p className="text-sm text-muted-foreground">Active: {hotspot.activeClients.join(', ')}</p>
                         <p className="text-xs text-muted-foreground">Total Demand Score: {hotspot.totalDemand}</p>
                       </li>
@@ -521,10 +512,10 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
             </Card>
             <Card>
               <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Info className="text-primary h-5 w-5" /> Data Source</CardTitle><CardDescription className="text-sm text-muted-foreground">Details about the displayed data.</CardDescription></CardHeader>
-              <CardContent className="min-h-[180px] flex flex-col items-center justify-center space-y-2">
+              <CardContent className="min-h-[180px] flex flex-col items-center justify-center space-y-2 p-4">
                   <p className="text-sm text-muted-foreground">Displaying data for: <span className="font-semibold text-foreground">{isValid(selectedDate) ? format(selectedDate, 'PPP') : 'Loading date...'}</span></p>
-                  <p className="text-sm text-muted-foreground">Total records in local cache for this date: <span className="font-semibold text-foreground">{localDemandData?.length || 0}</span></p>
-                  <p className="text-sm text-muted-foreground">Last cloud sync for any date: {lastSyncedDate  && isValid(lastSyncedDate) ? <span className="font-semibold text-foreground">{format(lastSyncedDate, 'PPP p')}</span> : <span className="font-semibold text-foreground">Never</span>}</p>
+                  <p className="text-sm text-muted-foreground">Total local records for this date: <span className="font-semibold text-foreground">{localDemandData?.length || 0}</span></p>
+                  <p className="text-sm text-muted-foreground">Last local data update: {lastSyncedDate  && isValid(lastSyncedDate) ? <span className="font-semibold text-foreground">{format(lastSyncedDate, 'PPP p')}</span> : <span className="font-semibold text-foreground">Never</span>}</p>
               </CardContent>
             </Card>
           </div>
@@ -533,22 +524,22 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
             <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><FileText className="text-primary h-5 w-5"/>Detailed Demand Data</CardTitle><CardDescription className="text-sm text-muted-foreground">Locally cached records for the selected date. Demand Tiers: High &gt; 20, Medium 10-20, Low &lt; 10.</CardDescription></CardHeader>
             <CardContent>
               {filteredDemandData.length > 0 ? (
-                <div className="max-h-[400px] overflow-auto rounded-md border">
+                <div className="overflow-x-auto rounded-md border">
                   <Table>
-                    <TableHeader className="sticky top-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"><TableRow><TableHead>Client</TableHead><TableHead>City</TableHead><TableHead>Area</TableHead><TableHead>Demand Score</TableHead><TableHead>Priority</TableHead><TableHead>Date</TableHead></TableRow></TableHeader>
+                    <TableHeader className="sticky top-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"><TableRow><TableHead className="whitespace-nowrap">Client</TableHead><TableHead className="whitespace-nowrap">City</TableHead><TableHead className="whitespace-nowrap">Area</TableHead><TableHead className="whitespace-nowrap text-right">Demand Score</TableHead><TableHead className="whitespace-nowrap text-center">Priority</TableHead><TableHead className="whitespace-nowrap">Date</TableHead></TableRow></TableHeader>
                     <TableBody>
                       {filteredDemandData.map((item: LocalDemandRecord) => { 
                         const tier = getDemandTier(item.demandScore); 
                         const key = item.localId !== undefined ? item.localId : item.id;
                         return (
-                        <TableRow key={key}><TableCell className="text-xs sm:text-sm">{item.client}</TableCell><TableCell className="text-xs sm:text-sm">{item.city}</TableCell><TableCell className="text-xs sm:text-sm">{item.area}</TableCell><TableCell className="text-xs sm:text-sm">{item.demandScore}</TableCell><TableCell><Badge variant={tier.variant}>{tier.label}</Badge></TableCell><TableCell className="text-xs sm:text-sm">{item.date}</TableCell></TableRow>
+                        <TableRow key={key}><TableCell className="text-xs sm:text-sm whitespace-nowrap">{item.client}</TableCell><TableCell className="text-xs sm:text-sm whitespace-nowrap">{item.city}</TableCell><TableCell className="text-xs sm:text-sm whitespace-nowrap">{item.area}</TableCell><TableCell className="text-xs sm:text-sm whitespace-nowrap text-right">{item.demandScore}</TableCell><TableCell className="text-center"><Badge variant={tier.variant}>{tier.label}</Badge></TableCell><TableCell className="text-xs sm:text-sm whitespace-nowrap">{item.date}</TableCell></TableRow>
                       );})}
                     </TableBody>
                   </Table>
                 </div>
               ) : (
                  <p className="text-center text-sm text-muted-foreground py-4">
-                  {(!localDemandData || localDemandData.length === 0) ? `No data found in local cache for ${selectedDateString}. Use Admin Panel to sync data.` : 
+                  {(!localDemandData || localDemandData.length === 0) ? `No data found in local cache for ${selectedDateString}. Use Admin Panel or Data Ingestion to add data.` : 
                    'No data matches the current filters for the selected date.'}
                 </p>
               )}
@@ -580,4 +571,3 @@ function DashboardSkeleton() {
     </div>
   );
 }
-

@@ -2,6 +2,7 @@
 'use client';
 
 import type { ChangeEvent, FormEvent } from 'react';
+import * as React from 'react'; // Ensured React is imported
 import { useState, useMemo, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,10 +13,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { DatePicker } from '@/components/ui/date-picker';
 import { getHistoricalDemandDataAction } from '@/lib/actions';
 import type { DemandData, ClientName } from '@/lib/types';
-import { format, subDays, isValid } from 'date-fns'; // Added isValid
+import { format, subDays, isValid } from 'date-fns'; 
 import { useToast } from '@/hooks/use-toast';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
-import { Loader2, Search } from 'lucide-react';
+import { Loader2, Search, FileText } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const CLIENT_OPTIONS: ClientName[] = ['Zepto', 'Blinkit', 'SwiggyFood', 'SwiggyIM'];
@@ -28,8 +29,8 @@ interface DateRange {
 }
 
 interface DemandHistoryClientProps {
-  initialFromDate: string; // Expect string
-  initialToDate: string;   // Expect string
+  initialFromDate: string; 
+  initialToDate: string;   
 }
 
 export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHistoryClientProps) {
@@ -61,12 +62,17 @@ export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHi
     }
   };
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: FormEvent) => { // Made e optional
+    if (e) e.preventDefault(); // Only prevent default if event exists
     if (!dateRange.from || !isValid(dateRange.from) || !dateRange.to || !isValid(dateRange.to)) {
       toast({ title: "Date Range Required", description: "Please select a valid start and end date.", variant: "destructive" });
       return;
     }
+    if (dateRange.from > dateRange.to) {
+      toast({ title: "Invalid Date Range", description: "Start date cannot be after end date.", variant: "destructive" });
+      return;
+    }
+
     setIsLoading(true);
     try {
       const result = await getHistoricalDemandDataAction(
@@ -74,7 +80,11 @@ export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHi
         filters 
       );
       setHistoricalData(result);
-      toast({ title: "History Loaded", description: `Found ${result.length} records for the selected period.` });
+      if (result.length > 0) {
+        toast({ title: "History Loaded", description: `Found ${result.length} records for the selected period.` });
+      } else {
+        toast({ title: "No Records Found", description: "No historical data matches your criteria for the selected period.", variant:"default" });
+      }
     } catch (error) {
       console.error('Failed to fetch historical data:', error);
       toast({ title: 'Error', description: 'Could not fetch historical data.', variant: 'destructive' });
@@ -96,9 +106,16 @@ export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHi
     return Object.values(aggregated).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [historicalData]);
 
-  // Ensure dates for DatePicker are valid
   const datePickerFromDate = useMemo(() => (dateRange.from && isValid(dateRange.from) ? dateRange.from : undefined), [dateRange.from]);
   const datePickerToDate = useMemo(() => (dateRange.to && isValid(dateRange.to) ? dateRange.to : undefined), [dateRange.to]);
+
+  // Auto-fetch on initial load
+  useEffect(() => {
+    if (isClient && datePickerFromDate && datePickerToDate) {
+      handleSubmit();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isClient]); // Only run on initial client mount if dates are valid
 
   return (
     <div className="space-y-6">
@@ -108,7 +125,7 @@ export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHi
           <CardDescription className="text-sm text-muted-foreground">Select date range and apply filters to explore past demand trends.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 items-end">
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 items-end">
             <div>
               <Label htmlFor="date-from">From</Label>
               <DatePicker id="date-from" date={datePickerFromDate} onDateChange={(date) => handleDateRangeChange('from', date)} />
@@ -121,11 +138,7 @@ export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHi
               <Label htmlFor="client-filter-hist">Client</Label>
               <Select
                 onValueChange={(selectedValue) => {
-                  if (selectedValue === ALL_CLIENTS_SELECT_ITEM_VALUE_HISTORY) {
-                    handleFilterChange('client', undefined);
-                  } else {
-                    handleFilterChange('client', selectedValue as ClientName);
-                  }
+                  handleFilterChange('client', selectedValue === ALL_CLIENTS_SELECT_ITEM_VALUE_HISTORY ? undefined : selectedValue as ClientName);
                 }}
                 value={filters.client || ALL_CLIENTS_SELECT_ITEM_VALUE_HISTORY} 
               >
@@ -140,7 +153,7 @@ export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHi
                 </SelectContent>
               </Select>
             </div>
-            <div>
+            <div className="lg:col-span-1">
               <Label htmlFor="city-filter-hist">City</Label>
               <Input
                 id="city-filter-hist"
@@ -149,7 +162,7 @@ export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHi
                 onChange={(e: ChangeEvent<HTMLInputElement>) => handleFilterChange('city', e.target.value)}
               />
             </div>
-            <Button type="submit" disabled={isLoading} className="w-full lg:col-span-3 xl:col-span-1">
+            <Button type="submit" disabled={isLoading} className="w-full sm:w-auto lg:col-start-auto xl:col-span-1 self-end">
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               <Search className="mr-2 h-4 w-4" /> View History
             </Button>
@@ -168,7 +181,7 @@ export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHi
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))"/>
-                  <XAxis dataKey="date" fontSize={12} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
+                  <XAxis dataKey="date" fontSize={12} tickFormatter={(val) => format(new Date(val), 'MMM d')} interval="preserveStartEnd" />
                   <YAxis fontSize={12} />
                   <Tooltip 
                       contentStyle={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)'}}
@@ -187,9 +200,12 @@ export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHi
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl font-semibold">Historical Data Records</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-xl font-semibold">
+            <FileText className="h-5 w-5 text-primary"/>
+            Historical Data Records
+          </CardTitle>
            <CardDescription className="text-sm text-muted-foreground">
-            {historicalData.length > 0 ? `Showing ${historicalData.length} records for the selected period.` : 'No records to display for the selected criteria.'}
+            {isLoading ? "Loading records..." : historicalData.length > 0 ? `Showing ${historicalData.length} records for the selected period.` : 'No records to display for the selected criteria.'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -198,25 +214,25 @@ export function DemandHistoryClient({ initialFromDate, initialToDate }: DemandHi
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : historicalData.length > 0 ? (
-            <div className="max-h-[500px] overflow-auto rounded-md border">
+            <div className="overflow-x-auto rounded-md border">
               <Table>
                 <TableHeader className="sticky top-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
                   <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Client</TableHead>
-                    <TableHead>City</TableHead>
-                    <TableHead>Area</TableHead>
-                    <TableHead>Demand Score</TableHead>
+                    <TableHead className="whitespace-nowrap">Date</TableHead>
+                    <TableHead className="whitespace-nowrap">Client</TableHead>
+                    <TableHead className="whitespace-nowrap">City</TableHead>
+                    <TableHead className="whitespace-nowrap">Area</TableHead>
+                    <TableHead className="whitespace-nowrap text-right">Demand Score</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {historicalData.map(item => (
                     <TableRow key={item.id}>
-                      <TableCell className="text-xs sm:text-sm">{item.date}</TableCell>
-                      <TableCell className="text-xs sm:text-sm">{item.client}</TableCell>
-                      <TableCell className="text-xs sm:text-sm">{item.city}</TableCell>
-                      <TableCell className="text-xs sm:text-sm">{item.area}</TableCell>
-                      <TableCell className="text-xs sm:text-sm">{item.demandScore}</TableCell>
+                      <TableCell className="text-xs sm:text-sm whitespace-nowrap">{item.date}</TableCell>
+                      <TableCell className="text-xs sm:text-sm whitespace-nowrap">{item.client}</TableCell>
+                      <TableCell className="text-xs sm:text-sm whitespace-nowrap">{item.city}</TableCell>
+                      <TableCell className="text-xs sm:text-sm whitespace-nowrap">{item.area}</TableCell>
+                      <TableCell className="text-xs sm:text-sm whitespace-nowrap text-right">{item.demandScore}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

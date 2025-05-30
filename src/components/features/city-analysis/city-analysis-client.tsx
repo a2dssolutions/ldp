@@ -1,6 +1,7 @@
 
 'use client';
 
+import * as React from 'react';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,7 +27,7 @@ import { getAppSettingsAction } from '@/lib/actions';
 import type { AppSettings } from '@/lib/services/config-service';
 import { useToast } from '@/hooks/use-toast';
 import { format, isValid, parseISO } from 'date-fns';
-import { Loader2, Search, CheckCircle2, XCircle, ArrowUp, ArrowDown, Filter, ListFilter } from 'lucide-react';
+import { Loader2, Search, CheckCircle2, XCircle, ArrowUp, ArrowDown, Filter, ListFilter, MapPinned } from 'lucide-react';
 
 interface CityAnalysisClientProps {
   initialSelectedDate: string;
@@ -106,7 +107,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
     if (filteredDataBySelectedPrimaryClients.length === 0) return [];
 
     const demandByCity: Record<string, Record<ClientName, LocalDemandRecord[]>> = {};
-    for (const record of filteredDataBySelectedPrimaryClients) {
+    for (const record of filteredDataBySelectedPrimaryClients) { // Use the data already filtered by selected clients
       if (!demandByCity[record.city]) demandByCity[record.city] = {} as Record<ClientName, LocalDemandRecord[]>;
       if (!demandByCity[record.city][record.client]) demandByCity[record.city][record.client] = [];
       demandByCity[record.city][record.client].push(record);
@@ -213,7 +214,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
         setSelectedActiveClientCounts([]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate, primarySelectedClients, handleGenerateReport, isLoadingSettings]); // Added isLoadingSettings
+  }, [selectedDate, primarySelectedClients, handleGenerateReport, isLoadingSettings]);
 
   const handleSort = (key: SortKey) => {
     setSortConfig(prevConfig => {
@@ -296,7 +297,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
             </div>
             <div className="lg:col-span-2">
               <Label>Primary Clients for Analysis</Label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2 border rounded-md">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 border rounded-md bg-muted/20">
                 {ALL_CLIENT_NAMES.map(client => (
                   <div key={client} className="flex items-center space-x-2">
                     <Checkbox
@@ -312,7 +313,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
                 ))}
               </div>
             </div>
-             <div className="flex items-center space-x-2">
+             <div className="flex items-center space-x-2 pt-2">
               <Switch
                 id="show-blacklisted-cities"
                 checked={showBlacklistedCities}
@@ -322,10 +323,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
               <Label htmlFor="show-blacklisted-cities" className="text-sm">Show Blacklisted Cities</Label>
             </div>
           </div>
-           <Button onClick={handleGenerateReport} disabled={isLoading || primarySelectedClients.length === 0 || isLoadingSettings} className="w-full sm:w-auto mt-4">
-            {isLoading || isLoadingSettings ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
-            {isLoadingSettings ? 'Loading Settings...' : 'Generate Report'}
-          </Button>
+           {/* Removed redundant generate report button as it's auto-triggered */}
         </CardContent>
       </Card>
 
@@ -346,30 +344,30 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
               Report for {selectedDate && isValid(selectedDate) ? format(selectedDate, 'PPP') : 'selected date'} using selected primary clients.
               "High Demand Areas" shows the top area for each selected client in that city.
             </CardDescription>
-             <div className="pt-2">
-              <Label htmlFor="city-search">Filter by City Name</Label>
+             <div className="pt-4">
+              <Label htmlFor="city-search" className="sr-only">Filter by City Name</Label>
               <Input
                 id="city-search"
-                placeholder="Enter city name to filter..."
+                placeholder="Filter by City Name..."
                 value={citySearchTerm}
                 onChange={(e) => setCitySearchTerm(e.target.value)}
-                className="max-w-sm"
+                className="max-w-xs w-full"
               />
             </div>
           </CardHeader>
           <CardContent>
-            <ScrollArea className="max-h-[600px] overflow-auto rounded-md border">
+            <div className="overflow-x-auto rounded-md border">
               <Table>
                 <TableHeader className="sticky top-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
                   <TableRow>
                     <TableHead>
-                      <Button variant="ghost" onClick={() => handleSort('city')} className="px-0 hover:bg-transparent">
+                      <Button variant="ghost" onClick={() => handleSort('city')} className="px-1 hover:bg-transparent text-left w-full justify-start">
                         City <SortIndicator columnKey="city" />
                       </Button>
                     </TableHead>
                     <TableHead>
-                      <div className="flex items-center gap-1">
-                        <Button variant="ghost" onClick={() => handleSort('activeSelectedClientCount')} className="px-0 hover:bg-transparent text-center">
+                      <div className="flex items-center gap-1 justify-center">
+                        <Button variant="ghost" onClick={() => handleSort('activeSelectedClientCount')} className="px-1 hover:bg-transparent">
                           Active Clients <SortIndicator columnKey="activeSelectedClientCount" />
                         </Button>
                         <DropdownMenu>
@@ -419,7 +417,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
                     .map((row) => {
                       return (
                         <TableRow key={row.city}>
-                          <TableCell className="font-medium">{row.city ?? 'N/A'}</TableCell>
+                          <TableCell className="font-medium whitespace-nowrap">{row.city ?? 'N/A'}</TableCell>
                           <TableCell className="text-center">{row.activeSelectedClientCount}</TableCell>
                           {primarySelectedClients.includes('Blinkit') && (
                             <TableCell className="text-center">
@@ -441,13 +439,13 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
                               {row.swiggyIM ? <CheckCircle2 className="h-5 w-5 text-green-500 inline-block" /> : <XCircle className="h-5 w-5 text-red-500 inline-block" />}
                             </TableCell>
                           )}
-                          <TableCell className="text-xs sm:text-sm">{row.highDemandAreas || 'N/A'}</TableCell>
+                          <TableCell className="text-xs sm:text-sm whitespace-normal min-w-[200px]">{row.highDemandAreas || 'N/A'}</TableCell>
                         </TableRow>
                       );
                     })}
                 </TableBody>
               </Table>
-            </ScrollArea>
+            </div>
              {sortedAndFilteredReportData.length === 0 && (citySearchTerm || selectedActiveClientCounts.length > 0 || (!showBlacklistedCities && blacklistedCitiesList.length > 0 && reportData.length > 0) ) && (
               <p className="text-center text-sm text-muted-foreground py-4">
                 No cities match your current filter criteria.
@@ -461,8 +459,7 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
         <Card className="mt-6">
           <CardContent className="pt-6">
             <p className="text-center text-sm text-muted-foreground">
-              No data to display. Select a date and primary clients, then click "Generate Report".
-              Ensure local data is available for the selected date and selected primary clients.
+              No data to display. Ensure local data is available for the selected date and clients.
             </p>
           </CardContent>
         </Card>
@@ -479,4 +476,3 @@ export function CityAnalysisClient({ initialSelectedDate }: CityAnalysisClientPr
     </div>
   );
 }
-

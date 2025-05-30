@@ -32,7 +32,7 @@ export function DataIngestionClient() {
   const [dataFetchedThisSession, setDataFetchedThisSession] = useState<DataFetchedThisSession>({});
 
   const [sourceStatuses, setSourceStatuses] = useState<SourceStatus[]>(
-    ALL_CLIENT_NAMES.map(client => ({ client, status: 'initial', rowCount: 0 }))
+    ALL_CLIENT_NAMES.map(client => ({ client, status: 'initial', rowCount: 0, message: 'Ready' }))
   );
 
   const [selectedClientsToFetch, setSelectedClientsToFetch] = useState<ClientName[]>(ALL_CLIENT_NAMES);
@@ -112,8 +112,10 @@ export function DataIngestionClient() {
             message: clientResult.message
           } as SourceStatus;
         }
-        if (!selectedClientsToFetch.includes(clientName)) {
-          return { client: clientName, status: 'not-fetched', message: 'Not included in this fetch.', rowCount: 0 } as SourceStatus;
+        // If client was not part of this fetch operation, keep its status as 'not-fetched' or 'initial'
+        const existingStatus = sourceStatuses.find(s => s.client === clientName);
+        if (!selectedClientsToFetch.includes(clientName) && existingStatus) {
+            return {...existingStatus, status: 'not-fetched', message: 'Not included in this fetch.'};
         }
         return { client: clientName, status: 'initial', message: 'Status unknown.', rowCount: 0 } as SourceStatus;
       });
@@ -190,14 +192,13 @@ export function DataIngestionClient() {
           description: firestoreResult.message,
         });
 
-        // Now save to local DB as well
         try {
           const demandDataToSaveLocally: DemandData[] = dataToUpload.map(item => ({
             ...item,
             date: format(parseISO(item.timestamp), 'yyyy-MM-dd')
           }));
           await saveBatchDataToLocalDB(demandDataToSaveLocally);
-          await updateSyncStatus(new Date()); // Update local sync timestamp
+          await updateSyncStatus(new Date()); 
           toast({ title: 'Local Cache Updated', description: 'Fetched data also saved to local cache and sync status updated.' });
         } catch (localSaveError) {
           console.error('Failed to save data to local Dexie DB or update sync status:', localSaveError);
@@ -244,7 +245,7 @@ export function DataIngestionClient() {
         date: format(parseISO(item.timestamp), 'yyyy-MM-dd')
       }));
       await saveBatchDataToLocalDB(demandDataToSaveLocally);
-      await updateSyncStatus(new Date()); // Update local sync timestamp
+      await updateSyncStatus(new Date()); 
       toast({ title: 'Local Cache Updated', description: 'Fetched data saved to local cache and sync status updated.' });
     } catch (localSaveError) {
       console.error('Failed to save data to local Dexie DB or update sync status:', localSaveError);
@@ -271,14 +272,14 @@ export function DataIngestionClient() {
   };
 
   const isAnyClientSelectedForFetch = selectedClientsToFetch.length > 0;
-  const isAnyClientSelectedForUpload = selectedClientsToUpload.length > 0 && Object.keys(dataFetchedThisSession).some(client => selectedClientsToUpload.includes(client as ClientName) && dataFetchedThisSession[client].length > 0);
+  const isAnyClientSelectedForUpload = selectedClientsToUpload.length > 0 && Object.keys(dataFetchedThisSession).some(client => selectedClientsToUpload.includes(client as ClientName) && (dataFetchedThisSession[client]?.length || 0) > 0);
   const isAnyOperationInProgress = isFetching || isUploadingToSystem || isUploadingToLocal;
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Ingest Demand Data</CardTitle>
-        <CardDescription>
+        <CardTitle className="text-xl font-semibold">Ingest Demand Data</CardTitle>
+        <CardDescription className="text-sm text-muted-foreground">
           Select clients to fetch data from. Preview the data, then choose to upload it to the cloud system (Firestore & Local Cache) or to local cache only.
         </CardDescription>
       </CardHeader>
@@ -286,21 +287,23 @@ export function DataIngestionClient() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-3">
             <h3 className="text-base font-semibold text-foreground">1. Select Clients to Fetch Data From:</h3>
-            <div className="space-y-2 p-3 border rounded-md bg-background/50 max-h-60 overflow-y-auto">
-              {ALL_CLIENT_NAMES.map(client => (
-                <div key={client} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`fetch-${client}`}
-                    checked={selectedClientsToFetch.includes(client)}
-                    onCheckedChange={(checked) => handleClientSelectionForFetch(client, !!checked)}
-                    disabled={isAnyOperationInProgress}
-                  />
-                  <Label htmlFor={`fetch-${client}`} className="text-sm font-normal">
-                    {client}
-                  </Label>
-                </div>
-              ))}
-            </div>
+            <ScrollArea className="h-48 md:h-60 w-full rounded-md border p-3 bg-background/50">
+              <div className="space-y-2">
+                {ALL_CLIENT_NAMES.map(client => (
+                  <div key={client} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`fetch-${client}`}
+                      checked={selectedClientsToFetch.includes(client)}
+                      onCheckedChange={(checked) => handleClientSelectionForFetch(client, !!checked)}
+                      disabled={isAnyOperationInProgress}
+                    />
+                    <Label htmlFor={`fetch-${client}`} className="text-sm font-normal">
+                      {client}
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
             <Button onClick={handleFetchData} disabled={isAnyOperationInProgress || !isAnyClientSelectedForFetch} className="w-full">
               {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
               Fetch Selected Clients
@@ -309,15 +312,15 @@ export function DataIngestionClient() {
 
           <div className="space-y-3">
             <h3 className="text-base font-semibold text-foreground">2. Source Statuses:</h3>
-            <ScrollArea className="h-60 w-full rounded-md border p-3 bg-background/50">
+            <ScrollArea className="h-48 md:h-60 w-full rounded-md border p-3 bg-background/50">
               <ul className="space-y-2">
                 {sourceStatuses.map((source) => (
-                  <li key={source.client} className="flex items-center justify-between p-2 border rounded-md bg-card">
+                  <li key={source.client} className="flex items-center justify-between p-2 border rounded-md bg-card shadow-sm">
                     <div className="flex items-center gap-2">
                       {getStatusIcon(source.status)}
                       <span className="text-sm font-medium">{source.client}</span>
                     </div>
-                    <div className="text-xs text-muted-foreground truncate" title={source.message}>
+                    <div className="text-xs text-muted-foreground truncate max-w-[100px] sm:max-w-[150px]" title={source.message}>
                       {source.status === 'initial' && 'Ready'}
                       {source.status === 'pending' && (source.message || 'Fetching...')}
                       {source.status === 'success' && `Success (${source.rowCount} rows)`}
@@ -335,30 +338,32 @@ export function DataIngestionClient() {
         {Object.keys(dataFetchedThisSession).length > 0 && (
           <div className="space-y-3 pt-4 border-t">
             <h3 className="text-base font-semibold text-foreground">3. Select Fetched Clients to Upload:</h3>
-            <div className="space-y-2 p-3 border rounded-md bg-background/50 max-h-60 overflow-y-auto">
-              {ALL_CLIENT_NAMES.filter(client => dataFetchedThisSession[client] && dataFetchedThisSession[client].length > 0).map(client => (
-                <div key={`upload-${client}`} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`upload-${client}`}
-                    checked={selectedClientsToUpload.includes(client)}
-                    onCheckedChange={(checked) => handleClientSelectionForUpload(client, !!checked)}
-                    disabled={isAnyOperationInProgress}
-                  />
-                  <Label htmlFor={`upload-${client}`} className="text-sm font-normal">
-                    {client} ({dataFetchedThisSession[client]?.length || 0} records)
-                  </Label>
-                </div>
-              ))}
-              {ALL_CLIENT_NAMES.filter(client => dataFetchedThisSession[client] && dataFetchedThisSession[client].length > 0).length === 0 && (
-                <p className="text-sm text-muted-foreground">No data successfully fetched in this session to upload.</p>
-              )}
-            </div>
-            <div className="flex flex-col sm:flex-row gap-2">
-                <Button onClick={handleUploadToSystem} disabled={isAnyOperationInProgress || !isAnyClientSelectedForUpload} className="w-full sm:w-auto">
+            <ScrollArea className="h-32 md:h-40 w-full rounded-md border p-3 bg-background/50">
+              <div className="space-y-2">
+                {ALL_CLIENT_NAMES.filter(client => dataFetchedThisSession[client] && dataFetchedThisSession[client].length > 0).map(client => (
+                  <div key={`upload-${client}`} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`upload-${client}`}
+                      checked={selectedClientsToUpload.includes(client)}
+                      onCheckedChange={(checked) => handleClientSelectionForUpload(client, !!checked)}
+                      disabled={isAnyOperationInProgress}
+                    />
+                    <Label htmlFor={`upload-${client}`} className="text-sm font-normal">
+                      {client} ({dataFetchedThisSession[client]?.length || 0} records)
+                    </Label>
+                  </div>
+                ))}
+                {ALL_CLIENT_NAMES.filter(client => dataFetchedThisSession[client] && dataFetchedThisSession[client].length > 0).length === 0 && (
+                  <p className="text-sm text-muted-foreground">No data successfully fetched in this session to upload.</p>
+                )}
+              </div>
+            </ScrollArea>
+            <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                <Button onClick={handleUploadToSystem} disabled={isAnyOperationInProgress || !isAnyClientSelectedForUpload} className="w-full sm:flex-1">
                 {isUploadingToSystem ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
                 Upload to System (Cloud & Local)
                 </Button>
-                <Button onClick={handleUploadToLocalOnly} variant="outline" disabled={isAnyOperationInProgress || !isAnyClientSelectedForUpload} className="w-full sm:w-auto">
+                <Button onClick={handleUploadToLocalOnly} variant="outline" disabled={isAnyOperationInProgress || !isAnyClientSelectedForUpload} className="w-full sm:flex-1">
                 {isUploadingToLocal ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Database className="mr-2 h-4 w-4" />}
                 Upload to Local Only
                 </Button>
@@ -375,31 +380,31 @@ export function DataIngestionClient() {
 
         {mergedDataPreview.length > 0 && !isFetching && (
           <div className="space-y-3 pt-4 border-t">
-            <h3 className="text-base font-semibold text-foreground">Preview of Data Selected for Upload:</h3>
-            <ScrollArea className="max-h-[500px] overflow-auto rounded-md border">
+            <h3 className="text-base font-semibold text-foreground">Preview of Data Selected for Upload ({mergedDataPreview.length} records):</h3>
+            <div className="overflow-x-auto rounded-md border">
               <Table>
                 <TableHeader className="sticky top-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
                   <TableRow>
-                    <TableHead>Client</TableHead>
-                    <TableHead>City</TableHead>
-                    <TableHead>Area</TableHead>
-                    <TableHead>Demand Score</TableHead>
-                    <TableHead>Timestamp</TableHead>
+                    <TableHead className="whitespace-nowrap">Client</TableHead>
+                    <TableHead className="whitespace-nowrap">City</TableHead>
+                    <TableHead className="whitespace-nowrap">Area</TableHead>
+                    <TableHead className="whitespace-nowrap text-right">Demand Score</TableHead>
+                    <TableHead className="whitespace-nowrap">Timestamp</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {mergedDataPreview.map((item) => (
                     <TableRow key={item.id}>
-                      <TableCell className="text-xs sm:text-sm">{item.client}</TableCell>
-                      <TableCell className="text-xs sm:text-sm">{item.city}</TableCell>
-                      <TableCell className="text-xs sm:text-sm">{item.area}</TableCell>
-                      <TableCell className="text-xs sm:text-sm">{item.demandScore}</TableCell>
-                      <TableCell className="text-xs sm:text-sm">{new Date(item.timestamp).toLocaleString()}</TableCell>
+                      <TableCell className="text-xs sm:text-sm whitespace-nowrap">{item.client}</TableCell>
+                      <TableCell className="text-xs sm:text-sm whitespace-nowrap">{item.city}</TableCell>
+                      <TableCell className="text-xs sm:text-sm whitespace-nowrap">{item.area}</TableCell>
+                      <TableCell className="text-xs sm:text-sm whitespace-nowrap text-right">{item.demandScore}</TableCell>
+                      <TableCell className="text-xs sm:text-sm whitespace-nowrap">{new Date(item.timestamp).toLocaleString()}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-            </ScrollArea>
+            </div>
           </div>
         )}
 
