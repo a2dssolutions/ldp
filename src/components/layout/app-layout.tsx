@@ -1,7 +1,7 @@
 
 'use client';
 
-import { createContext, useContext, useState, useEffect, type ReactNode, type ElementType } from 'react';
+import React, { useState, useEffect, type ReactNode, type ElementType } from 'react'; // Ensured React default import
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LayoutDashboard, DatabaseZap, History as HistoryIcon, ShieldCheck, Settings, UserCircle, Menu, MapPinned } from 'lucide-react';
@@ -26,7 +26,7 @@ interface NavItem {
   href: string;
   label: string;
   icon: ElementType;
-  id: string; // Added ID for precise targeting
+  id: string; 
 }
 
 const navItems: NavItem[] = [
@@ -37,25 +37,20 @@ const navItems: NavItem[] = [
   { href: '/admin', label: 'Admin Panel', icon: ShieldCheck, id: 'nav-admin' },
 ];
 
-// Context to share spinning state logic
-const AppLayoutContext = createContext<{
-  spinningIconId: string | null;
-  handleNavItemClick: (itemId: string) => void;
-} | null>(null);
-
-const useAppLayoutContext = () => {
-  const context = useContext(AppLayoutContext);
-  if (!context) {
-    throw new Error("useAppLayoutContext must be used within AppLayoutProvider");
-  }
-  return context;
-};
-
+// Removed AppLayoutContext and useAppLayoutContext
+// State and handlers for icon spinning will be local to MainSidebar and MobileSidebar
 
 function MainSidebar() {
   const pathname = usePathname();
   const { open } = useSidebar();
-  const { spinningIconId, handleNavItemClick } = useAppLayoutContext();
+  const [spinningIconId, setSpinningIconId] = useState<string | null>(null);
+
+  const handleNavItemClick = (itemId: string) => {
+    setSpinningIconId(itemId);
+    setTimeout(() => {
+      setSpinningIconId(null);
+    }, 1000); // Spin for 1 second
+  };
 
   return (
     <Sidebar>
@@ -80,7 +75,13 @@ function MainSidebar() {
                     asChild
                   >
                     <a onClick={() => handleNavItemClick(item.id)}>
-                      <IconComponent className={cn(isSpinning ? "animate-spin" : "", isActive ? "text-sidebar-primary-foreground" : "text-sidebar-foreground")} />
+                       <IconComponent 
+                        className={cn(
+                          "lucide", 
+                          isSpinning ? "animate-spin" : "",
+                          isActive ? "text-sidebar-primary-foreground" : "text-sidebar-foreground"
+                        )} 
+                      />
                       <span className={isActive ? "text-sidebar-primary-foreground" : "text-sidebar-foreground"}>{item.label}</span>
                     </a>
                   </SidebarMenuButton>
@@ -99,7 +100,13 @@ function MainSidebar() {
               onClick={() => handleNavItemClick('nav-settings')}
             >
                  <a>
-                    <Settings className={cn(spinningIconId === 'nav-settings' ? "animate-spin" : "", pathname.startsWith('/admin/settings') ? "text-sidebar-primary-foreground" : "text-sidebar-foreground")} />
+                    <Settings 
+                      className={cn(
+                        "lucide",
+                        spinningIconId === 'nav-settings' ? "animate-spin" : "", 
+                        pathname.startsWith('/admin/settings') ? "text-sidebar-primary-foreground" : "text-sidebar-foreground"
+                      )} 
+                    />
                     <span className={pathname.startsWith('/admin/settings') ? "text-sidebar-primary-foreground" : "text-sidebar-foreground"}>Settings</span>
                 </a>
             </SidebarMenuButton>
@@ -111,7 +118,14 @@ function MainSidebar() {
 
 function MobileSidebar() {
   const pathname = usePathname();
-  const { spinningIconId, handleNavItemClick } = useAppLayoutContext();
+  const [spinningIconId, setSpinningIconId] = useState<string | null>(null);
+
+  const handleNavItemClick = (itemId: string) => {
+    setSpinningIconId(itemId);
+    setTimeout(() => {
+      setSpinningIconId(null);
+    }, 1000); // Spin for 1 second
+  };
 
   return (
     <Sheet>
@@ -126,7 +140,7 @@ function MobileSidebar() {
           <LayoutDashboard className="size-7 text-primary" />
           <h1 className="font-semibold text-lg">Demand Hub</h1>
         </SidebarHeader>
-        <nav className="grid gap-2 text-base font-medium p-4"> {}
+        <nav className="grid gap-2 text-base font-medium p-4">
           {navItems.map((item) => {
             const IconComponent = item.icon;
             const isSpinning = spinningIconId === item.id;
@@ -141,7 +155,7 @@ function MobileSidebar() {
                   isActive ? "bg-sidebar-primary text-sidebar-primary-foreground" : "text-sidebar-foreground"
                 )}
               >
-                <IconComponent className={cn("h-5 w-5", isSpinning ? "animate-spin" : "", isActive ? "text-sidebar-primary-foreground" : "text-sidebar-foreground")} />
+                <IconComponent className={cn("h-5 w-5", isSpinning ? "animate-spin" : "")} />
                 {item.label}
               </Link>
             );
@@ -156,7 +170,7 @@ function MobileSidebar() {
                 pathname.startsWith('/admin/settings') ? "bg-sidebar-primary text-sidebar-primary-foreground" : "text-sidebar-foreground"
               )}
             >
-              <Settings className={cn("h-5 w-5", spinningIconId === 'nav-settings' ? "animate-spin" : "", pathname.startsWith('/admin/settings') ? "text-sidebar-primary-foreground" : "text-sidebar-foreground")} />
+              <Settings className={cn("h-5 w-5", spinningIconId === 'nav-settings' ? "animate-spin" : "")} />
               Settings
             </Link>
         </div>
@@ -188,24 +202,7 @@ function UserNav() {
 
 
 export function AppLayout({ children }: { children: ReactNode }) {
-  const [spinningIconId, setSpinningIconId] = useState<string | null>(null);
-
-  const handleNavItemClick = (itemId: string) => {
-      setSpinningIconId(itemId);
-  };
-  
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (spinningIconId) {
-      timer = setTimeout(() => {
-        setSpinningIconId(null);
-      }, 1000); // Spin for 1 second
-    }
-    return () => clearTimeout(timer);
-  }, [spinningIconId]);
-  
   return (
-    <AppLayoutContext.Provider value={{ spinningIconId, handleNavItemClick }}>
       <SidebarProvider defaultOpen={true}>
         <div className="flex min-h-screen w-full">
           <MainSidebar />
@@ -224,8 +221,5 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
       </SidebarProvider>
-    </AppLayoutContext.Provider>
   );
 }
-
-    

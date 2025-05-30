@@ -2,7 +2,7 @@
 'use client';
 
 import type { ChangeEvent } from 'react';
-import * as React from 'react'; // Ensured React is imported
+import * as React from 'react'; 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Bar, Pie, BarChart, PieChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, CartesianGrid, Cell } from 'recharts';
 import { Button } from '@/components/ui/button';
@@ -135,7 +135,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
     setIsClientRendered(true);
     const calculateRadius = () => {
       if (typeof window !== 'undefined') {
-        const newRadius = Math.max(60, Math.min(120, window.innerWidth / 6 - 30)); // Adjusted for potentially smaller chart areas
+        const newRadius = Math.max(60, Math.min(120, window.innerWidth / 6 - 30)); 
         setDynamicPieRadius(newRadius);
       }
     };
@@ -151,12 +151,19 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
       let showSyncMessage = false;
       let message = "";
 
-      if (!dataPresentForSelectedDate) {
+      if (isToday(selectedDate)) {
+        if (!dataPresentForSelectedDate) {
           showSyncMessage = true;
-          message = `No local data for ${selectedDateString}. Use Admin Panel or Data Ingestion to add data.`;
-      } else if (isToday(selectedDate) && (!lastSyncedDate || !isToday(lastSyncedDate))) {
+          message = `No local data for today (${selectedDateString}). Please use Admin Panel to sync.`;
+        } else if (!lastSyncedDate || !isToday(lastSyncedDate)) {
           showSyncMessage = true;
-          message = `Local data for today (${selectedDateString}) might be outdated. Last sync was ${lastSyncedDate ? format(lastSyncedDate, 'PPP p') : 'never'}. Consider syncing via Admin Panel for latest.`;
+          message = `Local data for today (${selectedDateString}) might be outdated. Last sync was ${lastSyncedDate ? format(lastSyncedDate, 'PPP p') : 'never'}. Consider syncing via Admin Panel.`;
+        }
+      } else { // For past dates
+        if (!dataPresentForSelectedDate) {
+          showSyncMessage = true;
+          message = `No local data for ${selectedDateString}. Use Admin Panel to sync specific dates if needed or check History.`;
+        }
       }
       
       setSyncStatusMessage(showSyncMessage ? message : null);
@@ -248,7 +255,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
       </Card>
 
       {syncStatusMessage && (
-        <Alert variant="default"> {/* Changed to default for info, can be 'destructive' for errors */}
+        <Alert variant="default"> 
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Data Status</AlertTitle>
           <AlertDescription>
@@ -336,8 +343,11 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                         </DialogTrigger>
                         <DialogContent className="sm:max-w-2xl md:max-w-3xl lg:max-w-4xl w-[90vw]">
                             <DialogHeader>
+                                <DialogTitle className="text-lg">All Top Performing Areas</DialogTitle>
                                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-2">
-                                    <DialogTitle className="text-lg">All Top Performing Areas</DialogTitle>
+                                    <DialogDescription>
+                                        Full list of areas sorted by total demand for {format(datePickerDate, 'PPP')}.
+                                    </DialogDescription>
                                     <div className="flex items-center gap-2 flex-wrap">
                                       <Button variant="outline" size="sm" onClick={() => setShowAreaTableView(prev => !prev)} className="gap-1.5 text-sm">
                                           {showAreaTableView ? <List className="h-4 w-4" /> : <Columns className="h-4 w-4" />}
@@ -354,9 +364,6 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                                       </Button>
                                     </div>
                                 </div>
-                                <DialogDescription>
-                                    Full list of areas sorted by total demand for {format(datePickerDate, 'PPP')}.
-                                </DialogDescription>
                             </DialogHeader>
                             <ScrollArea className="h-[60vh] w-full rounded-md border p-2 sm:p-4">
                                 {areaDemand.length === 0 && <p className="text-center text-sm text-muted-foreground py-4">No area data available for current filters.</p>}
@@ -431,8 +438,11 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                             </DialogTrigger>
                              <DialogContent className="sm:max-w-2xl md:max-w-3xl lg:max-w-4xl w-[90vw]">
                                 <DialogHeader>
+                                   <DialogTitle className="text-lg">All Multi-Client Hotspot Cities</DialogTitle>
                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-2">
-                                        <DialogTitle className="text-lg">All Multi-Client Hotspot Cities</DialogTitle>
+                                        <DialogDescription>
+                                            Full list of cities where multiple selected clients have demand for {format(datePickerDate, 'PPP')}.
+                                        </DialogDescription>
                                         <div className="flex items-center gap-2 flex-wrap">
                                             <Button variant="outline" size="sm" onClick={() => setShowHotspotTableView(prev => !prev)} className="gap-1.5 text-sm">
                                                 {showHotspotTableView ? <List className="h-4 w-4" /> : <Columns className="h-4 w-4" />}
@@ -449,9 +459,6 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                                             </Button>
                                         </div>
                                     </div>
-                                    <DialogDescription>
-                                        Full list of cities where multiple selected clients have demand for {format(datePickerDate, 'PPP')}.
-                                    </DialogDescription>
                                 </DialogHeader>
                                 <ScrollArea className="h-[60vh] w-full rounded-md border p-2 sm:p-4">
                                     {multiClientHotspots.length === 0 && <p className="text-center text-sm text-muted-foreground py-4">No multi-client hotspot data available.</p>}
@@ -539,7 +546,7 @@ export function DemandDashboardClient({ initialSelectedDate }: DemandDashboardCl
                 </div>
               ) : (
                  <p className="text-center text-sm text-muted-foreground py-4">
-                  {(!localDemandData || localDemandData.length === 0) ? `No data found in local cache for ${selectedDateString}. Use Admin Panel or Data Ingestion to add data.` : 
+                  {(!localDemandData || localDemandData.length === 0) ? `No data found in local cache for ${selectedDateString}. Use Admin Panel to sync data.` : 
                    'No data matches the current filters for the selected date.'}
                 </p>
               )}
@@ -571,3 +578,4 @@ function DashboardSkeleton() {
     </div>
   );
 }
+
