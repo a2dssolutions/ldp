@@ -1,7 +1,7 @@
 
 'use client';
 
-import * as React from 'react'; // Ensure React is imported
+import * as React from 'react';
 import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,7 +23,7 @@ import {
 } from '@/lib/services/demand-data-service';
 import type { AppSettings } from '@/lib/services/config-service';
 import type { LocalSyncMeta, DataSourceTestResult, HealthCheckStatus, ClientName } from '@/lib/types';
-import { Loader2, RefreshCw, Database, FileText, CheckCircle, XCircle, Info, Trash2, DownloadCloud, PlusCircle, ListFilter, AlertTriangle, HardDrive, Activity, Map, Pencil, Trash } from 'lucide-react';
+import { Loader2, RefreshCw, Database, FileText, CheckCircle, XCircle, Info, Trash2, DownloadCloud, PlusCircle, ListFilter, AlertTriangle, HardDrive, Activity, Map, Pencil, Trash, Ruler } from 'lucide-react';
 import { format, isValid } from 'date-fns';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Badge } from '@/components/ui/badge';
@@ -36,6 +36,15 @@ interface LastSyncInfo {
   timestamp: Date | null;
   message: string;
   success: boolean;
+}
+
+function formatBytes(bytes: number, decimals = 2): string {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
 
 export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
@@ -54,6 +63,8 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
 
   const [healthCheckResults, setHealthCheckResults] = useState<DataSourceTestResult | null>(null);
   const [isTestingSources, setIsTestingSources] = useState(false);
+
+  const [localDbSizeEstimate, setLocalDbSizeEstimate] = useState<string | null>(null);
 
   const localSyncMeta = useLiveQuery(
     () => getSyncStatus(),
@@ -79,6 +90,26 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
       setLastFirestoreSyncInfo(parsedInfo);
     }
     setCurrentSettings(initialSettings);
+
+    // Estimate local DB size
+    async function estimateStorage() {
+      if (navigator.storage && navigator.storage.estimate) {
+        try {
+          const estimate = await navigator.storage.estimate();
+          if (estimate.usage !== undefined) {
+            setLocalDbSizeEstimate(formatBytes(estimate.usage));
+          } else {
+            setLocalDbSizeEstimate('Usage estimation not available.');
+          }
+        } catch (error) {
+          console.error("Error estimating storage:", error);
+          setLocalDbSizeEstimate('Could not estimate size.');
+        }
+      } else {
+        setLocalDbSizeEstimate('Storage API not supported.');
+      }
+    }
+    estimateStorage();
   }, [initialSettings]);
 
   const handleManualFirestoreSync = async () => {
@@ -121,6 +152,11 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
       const result = await clearAllLocalDemandData();
       if (result.success) {
         toast({ title: "Local Data Cleared", description: result.message });
+        // Re-estimate size after clearing
+        if (navigator.storage && navigator.storage.estimate) {
+          const estimate = await navigator.storage.estimate();
+          setLocalDbSizeEstimate(estimate.usage !== undefined ? formatBytes(estimate.usage) : 'N/A');
+        }
       } else {
         toast({ title: "Failed to Clear Local Data", description: result.message, variant: "destructive" });
       }
@@ -142,6 +178,11 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
       if (result.success) {
         await performLocalSyncOperations(todayDateString, result.data);
         toast({ title: "Local Sync Successful", description: `${result.data.length} records for ${todayDateString} saved to local cache.` });
+         // Re-estimate size after sync
+        if (navigator.storage && navigator.storage.estimate) {
+          const estimate = await navigator.storage.estimate();
+          setLocalDbSizeEstimate(estimate.usage !== undefined ? formatBytes(estimate.usage) : 'N/A');
+        }
       } else {
         toast({ title: "Local Sync Failed", description: result.message || "Could not sync today's data from cloud.", variant: "destructive" });
       }
@@ -323,12 +364,19 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="p-3 border rounded-md bg-muted/50 space-y-1">
-            <p className="text-sm font-medium">Local Sync Status</p>
+            <p className="text-sm font-medium">Local Cache Status</p>
             <p className="text-xs text-muted-foreground">
               Last Synced to Local: {lastLocalSyncDate && isValid(lastLocalSyncDate) ? format(lastLocalSyncDate, "PPP p") : 'Never'}
             </p>
             <p className="text-xs text-muted-foreground">
               Total Records in Local Cache: {totalLocalRecords ?? 'Loading...'}
+            </p>
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Ruler className="h-3 w-3" />
+              <span>Estimated Local Storage Size: {localDbSizeEstimate !== null ? localDbSizeEstimate : 'Estimating...'}</span>
+            </div>
+            <p className="text-xs text-muted-foreground pt-1">
+              (For precise size, check browser developer tools: Application &gt; Storage &gt; IndexedDB)
             </p>
           </div>
           <Button onClick={handleSyncTodayToLocalDB} variant="outline" disabled={isSyncingTodayToLocal || isSyncingFirestore || isSavingSettings || isTestingSources} className="w-full">
@@ -358,7 +406,7 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
               disabled={isSavingSettings || isTestingSources}
               className="h-9"
             />
-            <Button onClick={handleAddBlacklistedCity} disabled={isSavingSettings || !newBlacklistedCity.trim() || isTestingSources} size="sm">
+            <Button onClick={handleAddBlacklistedCity} disabled={isSavingSettings || !newBlacklistedCity.trim() || isTestingSources} size="sm" className="sm:w-auto w-full">
               {isSavingSettings && newBlacklistedCity.trim() ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />}
               Add
             </Button>
@@ -515,3 +563,4 @@ export function AdminPanelClient({ initialSettings }: AdminPanelClientProps) {
     </div>
   );
 }
+
