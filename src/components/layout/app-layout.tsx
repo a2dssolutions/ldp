@@ -1,10 +1,8 @@
-
 'use client';
 
+import { createContext, useContext, useState, useEffect, type ReactNode, type ElementType } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import type { ReactNode } from 'react';
-import { useState } from 'react'; // Added useState
 import { LayoutDashboard, DatabaseZap, History as HistoryIcon, ShieldCheck, Settings, UserCircle, Menu, MapPinned } from 'lucide-react';
 import {
   SidebarProvider,
@@ -26,8 +24,8 @@ import { cn } from '@/lib/utils';
 interface NavItem {
   href: string;
   label: string;
-  icon: React.ElementType;
-  id?: string; // Added id for specific targeting
+  icon: ElementType;
+  id?: string;
 }
 
 const navItems: NavItem[] = [
@@ -164,13 +162,13 @@ function UserNav() {
 }
 
 // Context to share spinning state logic
-const AppLayoutContext = React.createContext<{
+const AppLayoutContext = createContext<{
   spinningIconId: string | null;
   handleNavItemClick: (itemId: string) => void;
 } | null>(null);
 
 const useAppLayoutContext = () => {
-  const context = React.useContext(AppLayoutContext);
+  const context = useContext(AppLayoutContext);
   if (!context) {
     throw new Error("useAppLayoutContext must be used within AppLayoutProvider");
   }
@@ -181,14 +179,21 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const [spinningIconId, setSpinningIconId] = useState<string | null>(null);
 
   const handleNavItemClick = (itemId: string) => {
-    if (itemId === 'dashboard-nav-item') { // Only spin for the dashboard item as per request
+    if (itemId === 'dashboard-nav-item') {
       setSpinningIconId(itemId);
-      setTimeout(() => {
+      // No need for useEffect here, direct state update is fine
+    }
+  };
+  
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (spinningIconId) {
+      timer = setTimeout(() => {
         setSpinningIconId(null);
       }, 1000); // Spin for 1 second
     }
-    // Navigation will be handled by the Link component itself
-  };
+    return () => clearTimeout(timer);
+  }, [spinningIconId]);
   
   return (
     <AppLayoutContext.Provider value={{ spinningIconId, handleNavItemClick }}>
