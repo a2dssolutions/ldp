@@ -1,3 +1,4 @@
+
 'use client';
 
 import { createContext, useContext, useState, useEffect, type ReactNode, type ElementType } from 'react';
@@ -25,16 +26,31 @@ interface NavItem {
   href: string;
   label: string;
   icon: ElementType;
-  id?: string;
+  id: string; // Added ID for precise targeting
 }
 
 const navItems: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, id: 'dashboard-nav-item' },
-  { href: '/ingestion', label: 'Data Ingestion', icon: DatabaseZap },
-  { href: '/history', label: 'Demand History', icon: HistoryIcon },
-  { href: '/city-analysis', label: 'City Analysis', icon: MapPinned },
-  { href: '/admin', label: 'Admin Panel', icon: ShieldCheck },
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, id: 'nav-dashboard' },
+  { href: '/ingestion', label: 'Data Ingestion', icon: DatabaseZap, id: 'nav-ingestion' },
+  { href: '/history', label: 'Demand History', icon: HistoryIcon, id: 'nav-history' },
+  { href: '/city-analysis', label: 'City Analysis', icon: MapPinned, id: 'nav-city-analysis' },
+  { href: '/admin', label: 'Admin Panel', icon: ShieldCheck, id: 'nav-admin' },
 ];
+
+// Context to share spinning state logic
+const AppLayoutContext = createContext<{
+  spinningIconId: string | null;
+  handleNavItemClick: (itemId: string) => void;
+} | null>(null);
+
+const useAppLayoutContext = () => {
+  const context = useContext(AppLayoutContext);
+  if (!context) {
+    throw new Error("useAppLayoutContext must be used within AppLayoutProvider");
+  }
+  return context;
+};
+
 
 function MainSidebar() {
   const pathname = usePathname();
@@ -54,17 +70,18 @@ function MainSidebar() {
           {navItems.map((item) => {
             const IconComponent = item.icon;
             const isSpinning = spinningIconId === item.id;
+            const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
             return (
               <SidebarMenuItem key={item.href}>
                 <Link href={item.href} legacyBehavior passHref>
                   <SidebarMenuButton
-                    isActive={pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))}
+                    isActive={isActive}
                     tooltip={item.label}
                     asChild
                   >
-                    <a onClick={() => item.id && handleNavItemClick(item.id)}>
-                      <IconComponent className={isSpinning ? "animate-spin" : ""} />
-                      <span>{item.label}</span>
+                    <a onClick={() => handleNavItemClick(item.id)}>
+                      <IconComponent className={cn(isSpinning ? "animate-spin" : "", isActive ? "text-sidebar-primary-foreground" : "text-sidebar-foreground")} />
+                      <span className={isActive ? "text-sidebar-primary-foreground" : "text-sidebar-foreground"}>{item.label}</span>
                     </a>
                   </SidebarMenuButton>
                 </Link>
@@ -75,10 +92,15 @@ function MainSidebar() {
       </SidebarContent>
       <SidebarFooter className={cn(open ? "p-4" : "p-2")}>
         <Link href="/admin/settings" legacyBehavior passHref>
-            <SidebarMenuButton tooltip="Settings" asChild>
+            <SidebarMenuButton 
+              tooltip="Settings" 
+              asChild
+              isActive={pathname.startsWith('/admin/settings')}
+              onClick={() => handleNavItemClick('nav-settings')}
+            >
                  <a>
-                    <Settings />
-                    <span>Settings</span>
+                    <Settings className={cn(spinningIconId === 'nav-settings' ? "animate-spin" : "", pathname.startsWith('/admin/settings') ? "text-sidebar-primary-foreground" : "text-sidebar-foreground")} />
+                    <span className={pathname.startsWith('/admin/settings') ? "text-sidebar-primary-foreground" : "text-sidebar-foreground"}>Settings</span>
                 </a>
             </SidebarMenuButton>
         </Link>
@@ -108,17 +130,18 @@ function MobileSidebar() {
           {navItems.map((item) => {
             const IconComponent = item.icon;
             const isSpinning = spinningIconId === item.id;
+            const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={() => item.id && handleNavItemClick(item.id)}
+                onClick={() => handleNavItemClick(item.id)}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary hover:bg-sidebar-accent",
-                  (pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))) ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground"
+                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                  isActive ? "bg-sidebar-primary text-sidebar-primary-foreground" : "text-sidebar-foreground"
                 )}
               >
-                <IconComponent className={cn("h-5 w-5", isSpinning ? "animate-spin" : "")} />
+                <IconComponent className={cn("h-5 w-5", isSpinning ? "animate-spin" : "", isActive ? "text-sidebar-primary-foreground" : "text-sidebar-foreground")} />
                 {item.label}
               </Link>
             );
@@ -127,11 +150,13 @@ function MobileSidebar() {
         <div className="mt-auto p-4 border-t border-sidebar-border">
            <Link
               href="/admin/settings"
+              onClick={() => handleNavItemClick('nav-settings')}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary hover:bg-sidebar-accent text-sidebar-foreground"
+                "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                pathname.startsWith('/admin/settings') ? "bg-sidebar-primary text-sidebar-primary-foreground" : "text-sidebar-foreground"
               )}
             >
-              <Settings className="h-5 w-5" />
+              <Settings className={cn("h-5 w-5", spinningIconId === 'nav-settings' ? "animate-spin" : "", pathname.startsWith('/admin/settings') ? "text-sidebar-primary-foreground" : "text-sidebar-foreground")} />
               Settings
             </Link>
         </div>
@@ -161,28 +186,12 @@ function UserNav() {
   );
 }
 
-// Context to share spinning state logic
-const AppLayoutContext = createContext<{
-  spinningIconId: string | null;
-  handleNavItemClick: (itemId: string) => void;
-} | null>(null);
-
-const useAppLayoutContext = () => {
-  const context = useContext(AppLayoutContext);
-  if (!context) {
-    throw new Error("useAppLayoutContext must be used within AppLayoutProvider");
-  }
-  return context;
-};
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const [spinningIconId, setSpinningIconId] = useState<string | null>(null);
 
   const handleNavItemClick = (itemId: string) => {
-    if (itemId === 'dashboard-nav-item') {
       setSpinningIconId(itemId);
-      // No need for useEffect here, direct state update is fine
-    }
   };
   
   useEffect(() => {
@@ -218,3 +227,5 @@ export function AppLayout({ children }: { children: ReactNode }) {
     </AppLayoutContext.Provider>
   );
 }
+
+    
