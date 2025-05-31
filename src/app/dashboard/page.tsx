@@ -2,7 +2,7 @@
 import { DemandDashboardClient } from '@/components/features/demand-dashboard/demand-dashboard-client';
 import { Suspense } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { format } from 'date-fns'; // Added for consistency if needed, though not strictly for this fix
+// import { format } from 'date-fns'; // Removed unused import
 import type { DemandData, CityDemand, ClientDemand, AreaDemand, MultiClientHotspotCity } from '@/lib/types';
 import { 
   getDemandDataAction, 
